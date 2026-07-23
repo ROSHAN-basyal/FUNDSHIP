@@ -16,6 +16,7 @@
     "check": "tsc -b",
     "smoke": "tsx server/smoke.ts",
     "start": "NODE_ENV=production tsx server/index.ts",
+    "user:create": "tsx scripts/create-user.ts",
     "ci": "npm run check && npm run smoke && npm run build"
   },
   "engines": {

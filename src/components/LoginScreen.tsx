@@ -4,8 +4,8 @@ import { login, session } from '../lib/api';
 import { biometricSessionLogin, isNativeAndroid, nativeBiometricConfirm, rememberBiometricSession, storedBiometricSession } from '../lib/native';
 
 export function LoginScreen({ onLogin }: { onLogin: () => void }) {
-  const [credentialId, setCredentialId] = useState('RB-001');
-  const [password, setPassword] = useState('12345678');
+  const [credentialId, setCredentialId] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -28,7 +28,7 @@ export function LoginScreen({ onLogin }: { onLogin: () => void }) {
       <div className="login-orb orb-one" /><div className="login-orb orb-two" />
       <section className="login-brand">
         <div className="brand-mark brand-mark-large"><span>स</span></div>
-        <div><span className="eyebrow light">Plan together · settle simply</span><h1>Sajilo</h1></div>
+        <div><span className="eyebrow light">Plan together · settle simply</span><h1>FUNDSHIP</h1></div>
         <p>One calm place for the plans you make and the money you share.</p>
         <div className="login-preview">
           <div className="preview-icon"><Sparkles size={18}/></div>
@@ -45,7 +45,7 @@ export function LoginScreen({ onLogin }: { onLogin: () => void }) {
           <button className="primary-btn login-btn" disabled={loading}>{loading?'Signing in…':<>Sign in <ArrowRight size={18}/></>}</button>
         </form>
         {biometricId&&<button className="biometric-login" disabled={loading} onClick={()=>void fingerprintLogin()}><Fingerprint size={23}/><span><strong>Sign in with fingerprint</strong><small>{biometricId}</small></span></button>}
-        <div className="demo-note"><strong>Demo access</strong><span>RB-001 · 12345678</span></div>
+        <div className="demo-note"><strong>Private beta</strong><span>Ask the administrator for your account ID.</span></div>
       </section>
     </main>
   );

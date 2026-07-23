@@ -38,6 +38,7 @@ final class FundsApi {
     }
 
     void bootstrap(Callback callback) { request("/bootstrap", "GET", null, callback); }
+    void get(String path, Callback callback) { request(path, "GET", null, callback); }
     void post(String path, JSONObject body, Callback callback) { request(path, "POST", body, callback); }
     void delete(String path, Callback callback) { request(path, "DELETE", null, callback); }
 

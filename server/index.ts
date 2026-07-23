@@ -6,7 +6,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { createDatabase, type AppDatabase } from './database.js';
 import { initializeLocalDatabase } from './local-database.js';
 
-type AuthedRequest = Request & { userId?: string };
+type AuthedRequest = Request & { userId?: string; mustChangePassword?: boolean; mustCreateMpin?: boolean };
 type PollOption = { id: string; label: string };
 
 const db = createDatabase();
@@ -71,6 +71,7 @@ const publicUser = (row: any) => ({
   avatarColor: row.avatar_color,
   profilePhoto: row.profile_photo,
   mustChangePassword: Boolean(row.must_change_password),
+  hasMpin: Boolean(row.mpin_hash),
 });
 
 async function areConnected(userOne: string, userTwo: string) {
@@ -523,8 +524,10 @@ async function auth(req: AuthedRequest, res: Response, next: NextFunction) {
       res.status(401).json({ error: 'Please sign in.' });
       return;
     }
-    const session = await db.get<{ user_id: string }>(
-      'SELECT user_id FROM sessions WHERE token = ?',
+    const session = await db.get<{ user_id: string; must_change_password: boolean | number; mpin_hash: string | null }>(
+      `SELECT s.user_id, u.must_change_password, u.mpin_hash
+       FROM sessions s JOIN users u ON u.id=s.user_id
+       WHERE s.token = ?`,
       [token],
     );
     if (!session) {
@@ -532,6 +535,26 @@ async function auth(req: AuthedRequest, res: Response, next: NextFunction) {
       return;
     }
     req.userId = session.user_id;
+    req.mustChangePassword = Boolean(session.must_change_password);
+    req.mustCreateMpin = !session.mpin_hash;
+    if (
+      req.mustChangePassword
+      && req.path !== '/api/bootstrap'
+      && req.path !== '/api/auth/change-password'
+    ) {
+      res.status(428).json({ error: 'Change your initial password before continuing.' });
+      return;
+    }
+    if (
+      !req.mustChangePassword
+      &&
+      req.mustCreateMpin
+      && req.path !== '/api/bootstrap'
+      && req.path !== '/api/auth/set-mpin'
+    ) {
+      res.status(428).json({ error: 'Create your MPIN before continuing.' });
+      return;
+    }
     next();
   } catch (error) {
     next(error);
@@ -601,6 +624,24 @@ app.post('/api/auth/verify-mpin', auth, async (req: AuthedRequest, res) => {
     res.status(403).json({ error: 'Incorrect MPIN.' });
     return;
   }
+  res.json({ ok: true });
+});
+
+app.post('/api/auth/set-mpin', auth, async (req: AuthedRequest, res) => {
+  const newMpin = String(req.body?.newMpin || '');
+  if (!/^\d{4}$/.test(newMpin)) {
+    res.status(400).json({ error: 'MPIN must be exactly 4 digits.' });
+    return;
+  }
+  const user = await db.get<any>('SELECT mpin_hash FROM users WHERE id=?', [req.userId!]);
+  if (user?.mpin_hash) {
+    res.status(409).json({ error: 'Your MPIN is already set. Use Change MPIN instead.' });
+    return;
+  }
+  await db.run('UPDATE users SET mpin_hash=? WHERE id=?', [
+    await createSecretHash(newMpin),
+    req.userId!,
+  ]);
   res.json({ ok: true });
 });
 
@@ -1021,6 +1062,35 @@ app.post('/api/groups/:id/messages', auth, async (req: AuthedRequest, res) => {
     [randomUUID(), groupId, req.userId!, body.slice(0, 2000), new Date().toISOString()],
   );
   res.status(201).json(await getBootstrap(req.userId!));
+});
+
+app.get('/api/groups/:id/messages', auth, async (req: AuthedRequest, res) => {
+  const groupId = String(req.params.id);
+  const member = await db.get(
+    'SELECT 1 FROM group_members WHERE group_id=? AND user_id=?',
+    [groupId, req.userId!],
+  );
+  if (!member) {
+    res.status(403).json({ error: 'You are not in this group.' });
+    return;
+  }
+  const messages = await db.all<any>(
+    `SELECT m.*, u.name, u.avatar_color
+     FROM messages m JOIN users u ON u.id=m.user_id
+     WHERE m.group_id=? AND m.created_at>=?
+     ORDER BY m.created_at ASC LIMIT 200`,
+    [groupId, new Date(Date.now() - 10 * 86_400_000).toISOString()],
+  );
+  res.json({
+    messages: messages.map((message) => ({
+      id: message.id,
+      userId: message.user_id,
+      name: message.name,
+      avatarColor: message.avatar_color,
+      body: message.body,
+      createdAt: asIso(message.created_at),
+    })),
+  });
 });
 
 app.post('/api/groups/:id/polls', auth, async (req: AuthedRequest, res) => {

@@ -7,3 +7,4 @@ server/data/*.db-*
 *.tsbuildinfo
 .vercel
 supabase/.temp
+supabase/link_with_passowrd.txt

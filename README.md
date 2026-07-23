@@ -25,6 +25,7 @@ The database is created and seeded at `server/data/sajilo.db` on first API start
 ## Included flows
 
 - System-issued credential login, first-login fingerprint enrollment, biometric return login, password change, MPIN verification/change, and payment-linked phone-number setup.
+- Administrator-issued beta accounts with mandatory first-login password replacement and one-time personal MPIN setup.
 - Netted person-to-person ledger with incoming/outgoing pending requests.
 - Lend requests, individual requests, single or bulk biometric-first verification, equal/manual group splits, and verified bilateral transaction history.
 - Group creation, invitation approval, automatic member connections, manual connection requests, group ordering, animated swipe navigation, and text-only chat.
@@ -93,13 +94,27 @@ The production code path is ready, but no credentials are committed. SQLite rema
 4. Deploy and verify `https://YOUR-VERCEL-DOMAIN/api/health`. The response should report `"database": "postgres"`.
 5. Build Android with `FUNDSHIP_API_URL=https://YOUR-VERCEL-DOMAIN/api`, then install that APK.
 
+### Issue a beta account
+
+Run the operator command from a trusted computer:
+
+```bash
+npm run user:create
+```
+
+It prompts for the Supabase transaction-pooler URL (hidden when `DATABASE_URL` is not already set), user ID, display name, initial password, and password confirmation. The password is hidden and stored only as a bcrypt hash. The user must replace it at first login, then create their own four-digit MPIN before the rest of the app unlocks. There is deliberately no account-creation control in the mobile app.
+
+For repeated use in one trusted terminal session, `DATABASE_URL` may be supplied through the environment. Never paste it into source files or commit it.
+
 [`vercel.json`](vercel.json) packages the Express API from [`api/[...path].ts`](api/[...path].ts), builds the Vite client, and runs retention/poll finalization daily at midnight Nepal time. Bootstrap requests also run the same idempotent maintenance so overdue polls do not wait for the daily job.
 
 The GitHub workflow in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) type-checks, smoke-tests, and builds every push and pull request. Connecting the repository through Vercel's Git integration gives production deployments after that validation path is established.
 
 Passwords and MPINs retain compatibility with existing local SHA-256 demo records, then are upgraded to bcrypt on successful password login or MPIN change. The Supabase tables have RLS enabled with no public Data API policies; the trusted Vercel API is the only intended data path.
 
-Profile images are still stored as text fields for compatibility. Moving them into private Supabase Storage and adding FCM/APNs server-originated push delivery remain later production-hardening steps.
+Profile images are still stored as text fields for compatibility. Moving them into private Supabase Storage remains later production hardening.
+
+The deployed REST API supports shared accounts, connections, payments, polls, and chat between phones. Visible clients refresh hosted chat automatically. True server-originated Android alerts while the app is fully stopped still require Firebase Cloud Messaging credentials; Vercel alone cannot wake an Android app. Until FCM is connected, new poll and inbox alerts are delivered when the app is open or reconnects.
 
 ## Poll reminder behavior
 

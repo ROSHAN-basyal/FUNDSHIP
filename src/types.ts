@@ -6,6 +6,7 @@ export type User = {
   avatarColor: string;
   profilePhoto?: string;
   mustChangePassword?: boolean;
+  hasMpin?: boolean;
   role?: 'admin' | 'member';
 };
 

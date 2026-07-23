@@ -6,6 +6,8 @@ import { GroupPage, PollAlert } from './components/GroupPage';
 import { ProfileModal } from './components/ProfileModal';
 import { GroupModal } from './components/GroupModal';
 import { NotificationCenter } from './components/NotificationCenter';
+import { RequiredPasswordChange } from './components/RequiredPasswordChange';
+import { RequiredMpinSetup } from './components/RequiredMpinSetup';
 import { Avatar } from './components/Avatar';
 import { getBootstrap, mutate, request, session } from './lib/api';
 import { isNativeAndroid, onNativeAppResume, PollNotifications, prepareNativeNotifications, requestNativeNotificationPermission, showNativeInboxNotification, showNativePayment, showNativePoll } from './lib/native';
@@ -18,9 +20,11 @@ function AppShell({data,onData}:{data:Bootstrap;onData:(d:Bootstrap)=>void}){
   const [groupOrder,setGroupOrder]=useState<string[]>(()=>{try{return JSON.parse(localStorage.getItem('sajilo_group_order')||'[]')}catch{return[]}});
   const dragId=useRef<string|null>(null);const touchX=useRef(0);
   const delivering=useRef(new Set<string>());
+  const syncing=useRef(false);
   const groups=useMemo(()=>[...data.groups].sort((a,b)=>{const ai=groupOrder.indexOf(a.id),bi=groupOrder.indexOf(b.id);if(ai<0&&bi<0)return 0;if(ai<0)return 1;if(bi<0)return-1;return ai-bi}),[data.groups,groupOrder]);
   const pages=['home',...groups.map(g=>g.id)];
   const currentGroup=groups.find(g=>g.id===page);
+  useEffect(()=>{const sync=async()=>{if(document.visibilityState!=='visible'||syncing.current)return;syncing.current=true;try{onData(await getBootstrap())}catch{/* retain the last usable screen while temporarily offline */}finally{syncing.current=false}};const timer=window.setInterval(()=>void sync(),8000);const visible=()=>{if(document.visibilityState==='visible')void sync()};document.addEventListener('visibilitychange',visible);return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',visible)}},[onData]);
   useEffect(()=>{if(!isNativeAndroid)return;let active=true;void prepareNativeNotifications().then(async status=>{if(!status||!active)return;let next=status;if(!localStorage.getItem('sajilo_notification_permission_asked')){localStorage.setItem('sajilo_notification_permission_asked','1');next=await requestNativeNotificationPermission()||status}if(active)setNativeStatus(next)});return()=>{active=false}},[]);
   useEffect(()=>{const candidates=groups.flatMap(group=>group.polls.map(poll=>({group,poll}))).filter(item=>item.poll.status==='open'&&item.poll.approvalStatus==='approved'&&!item.poll.myVote&&Number(localStorage.getItem(`sajilo_remind_${item.poll.id}`)||0)<Date.now());if(!candidates.length)return;if(isNativeAndroid){for(const candidate of candidates){const key=`sajilo_native_notified_${candidate.poll.id}`;if(Number(localStorage.getItem(key)||0)>Date.now()-30*60*1000)continue;localStorage.setItem(key,String(Date.now()));void showNativePoll(candidate.group,candidate.poll)}return}const timer=window.setTimeout(()=>setIncomingAlert(candidates[0]),900);return()=>clearTimeout(timer)},[data.groups]);
   useEffect(()=>{if(!isNativeAndroid)return;for(const item of data.notifications.filter(notification=>!notification.nativeDelivered)){if(delivering.current.has(item.id))continue;delivering.current.add(item.id);void(async()=>{try{let shown=false;if(item.type==='poll_open'){const owner=groups.find(group=>group.polls.some(poll=>poll.id===item.entityId));const poll=owner?.polls.find(value=>value.id===item.entityId);shown=owner&&poll&&!poll.myVote?await showNativePoll(owner,poll):true}else if(item.type==='payment_request'){const payment=data.payments.incoming.find(value=>value.id===item.entityId);shown=payment?await showNativePayment(payment.id,payment.payeeName,payment.amount,payment.purpose):await showNativeInboxNotification(item)}else shown=await showNativeInboxNotification(item);if(shown)await request(`/notifications/${item.id}/delivered`,{method:'POST'})}finally{delivering.current.delete(item.id)}})()}},[data.notifications,data.groups,data.payments.incoming,nativeStatus?.notificationsGranted,nativeStatus?.notificationsEnabled]);
@@ -57,7 +61,9 @@ export default function App(){
   const [data,setData]=useState<Bootstrap|null>(null);const[loading,setLoading]=useState(Boolean(session.get()));const[error,setError]=useState('');
   async function load(){setLoading(true);setError('');try{setData(await getBootstrap())}catch(err){session.clear();setError(err instanceof Error?err.message:'Could not load your account.')}finally{setLoading(false)}}
   useEffect(()=>{if(session.get())load()},[]);
-  if(loading)return <div className="splash"><div className="brand-mark brand-mark-large"><span>स</span></div><strong>Sajilo</strong><span className="loading-dots"><i/><i/><i/></span></div>;
+  if(loading)return <div className="splash"><div className="brand-mark brand-mark-large"><span>F</span></div><strong>FUNDSHIP</strong><span className="loading-dots"><i/><i/><i/></span></div>;
   if(!data)return <><LoginScreen onLogin={()=>load()}/>{error&&<div className="floating-error">{error}</div>}</>;
+  if(data.user.mustChangePassword)return <RequiredPasswordChange onChanged={load}/>;
+  if(data.user.hasMpin===false)return <RequiredMpinSetup onChanged={load}/>;
   return <AppShell data={data} onData={setData}/>;
 }
