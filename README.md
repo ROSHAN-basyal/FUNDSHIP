@@ -112,6 +112,11 @@ The GitHub workflow in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) ty
 
 Passwords and MPINs retain compatibility with existing local SHA-256 demo records, then are upgraded to bcrypt on successful password login or MPIN change. The Supabase tables have RLS enabled with no public Data API policies; the trusted Vercel API is the only intended data path.
 
+The server vendors the MIT-licensed UMD runtime from
+`@sbmdkl/nepali-date-converter` 2.0.5 because that package's ESM export metadata
+is incompatible with strict Node serverless loading. The browser build continues
+to consume the package normally through Vite.
+
 Profile images are still stored as text fields for compatibility. Moving them into private Supabase Storage remains later production hardening.
 
 The deployed REST API supports shared accounts, connections, payments, polls, and chat between phones. Visible clients refresh hosted chat automatically. True server-originated Android alerts while the app is fully stopped still require Firebase Cloud Messaging credentials; Vercel alone cannot wake an Android app. Until FCM is connected, new poll and inbox alerts are delivered when the app is open or reconnects.

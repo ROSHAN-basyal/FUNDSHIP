@@ -7,7 +7,9 @@ import { createDatabase, type AppDatabase } from './database.js';
 import { initializeLocalDatabase } from './local-database.js';
 
 const require = createRequire(import.meta.url);
-const { adToBs, bsToAd } = require('@sbmdkl/nepali-date-converter') as {
+// Local copy of the dependency's MIT-licensed UMD build avoids its invalid
+// package ESM metadata in strict serverless runtimes.
+const { adToBs, bsToAd } = require('./vendor/nepali-date-converter.cjs') as {
   adToBs(adDate: string): string;
   bsToAd(bsDate: string): string;
 };
