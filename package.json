@@ -20,7 +20,7 @@
     "ci": "npm run check && npm run smoke && npm run build"
   },
   "engines": {
-    "node": ">=22"
+    "node": "22.x"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.2",

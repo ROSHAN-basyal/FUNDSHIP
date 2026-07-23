@@ -1,10 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { adToBs, bsToAd } from '@sbmdkl/nepali-date-converter';
+import { createRequire } from 'node:module';
 import { compare as compareSecret, hash as hashSecret } from 'bcryptjs';
 import cors from 'cors';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { createDatabase, type AppDatabase } from './database.js';
 import { initializeLocalDatabase } from './local-database.js';
+
+const require = createRequire(import.meta.url);
+const { adToBs, bsToAd } = require('@sbmdkl/nepali-date-converter') as {
+  adToBs(adDate: string): string;
+  bsToAd(bsDate: string): string;
+};
 
 type AuthedRequest = Request & { userId?: string; mustChangePassword?: boolean; mustCreateMpin?: boolean };
 type PollOption = { id: string; label: string };
