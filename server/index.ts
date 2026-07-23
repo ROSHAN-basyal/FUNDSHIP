@@ -511,14 +511,26 @@ async function getBootstrap(userId: string) {
   };
 }
 
-const ready = initializeLocalDatabase(db).then(runMaintenance);
+let initialization: Promise<void> | undefined;
+
+function ensureReady() {
+  if (!initialization) {
+    initialization = initializeLocalDatabase(db)
+      .then(runMaintenance)
+      .catch((error) => {
+        initialization = undefined;
+        throw error;
+      });
+  }
+  return initialization;
+}
 
 app.disable('x-powered-by');
 app.use(cors());
 app.use(express.json({ limit: '3mb' }));
 app.use(async (_req, _res, next) => {
   try {
-    await ready;
+    await ensureReady();
     next();
   } catch (error) {
     next(error);
@@ -1332,7 +1344,7 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
 
 if (!process.env.VERCEL) {
   const port = Number(process.env.PORT || 8787);
-  ready
+  ensureReady()
     .then(() => app.listen(port, () => {
       console.log(`FUNDSHIP API listening on http://localhost:${port} (${db.kind})`);
     }))
