@@ -9,15 +9,29 @@ import { initializeLocalDatabase } from './local-database.js';
 const require = createRequire(import.meta.url);
 // Local copy of the dependency's MIT-licensed UMD build avoids its invalid
 // package ESM metadata in strict serverless runtimes.
-const { adToBs, bsToAd } = require('./vendor/nepali-date-converter.cjs') as {
+type DateConverter = {
   adToBs(adDate: string): string;
   bsToAd(bsDate: string): string;
 };
+let dateConverter: DateConverter | undefined;
+const converter = () => dateConverter ??= require('./vendor/nepali-date-converter.cjs') as DateConverter;
+const adToBs = (value: string) => converter().adToBs(value);
+const bsToAd = (value: string) => converter().bsToAd(value);
 
 type AuthedRequest = Request & { userId?: string; mustChangePassword?: boolean; mustCreateMpin?: boolean };
 type PollOption = { id: string; label: string };
 
-const db = createDatabase();
+let database: AppDatabase | undefined;
+const getDatabase = () => database ??= createDatabase();
+const db: AppDatabase = {
+  get kind() { return getDatabase().kind; },
+  all: (query, params) => getDatabase().all(query, params),
+  get: (query, params) => getDatabase().get(query, params),
+  run: (query, params) => getDatabase().run(query, params),
+  exec: (query) => getDatabase().exec(query),
+  transaction: (work) => getDatabase().transaction(work),
+  close: () => getDatabase().close(),
+};
 const app = express();
 const legacyHash = (value: string) => createHash('sha256').update(value).digest('hex');
 const pad = (value: number) => String(value).padStart(2, '0');
