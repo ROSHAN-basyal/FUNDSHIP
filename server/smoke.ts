@@ -16,6 +16,7 @@ async function api(path:string,token:string,method='GET',body?:unknown){const re
 try{
   await waitForServer();
   const u1=await login('RB-001','12345678'),u2=await login('NP-002','123456789'),u3=await login('SA-003','welcome123');
+  const initial=await api('/bootstrap',u1);assert(!('paymentQr' in initial.user)&&!('esewaQr' in initial.user),'Payment QR fields were returned by the API');const initialDb=new DatabaseSync(database);assert(!(initialDb.prepare('PRAGMA table_info(users)').all() as any[]).some(column=>column.name==='esewa_qr'),'Payment QR column remained in SQLite');initialDb.close();
   const eventAt=new Date(Date.now()+72*3_600_000).toISOString();
   let admin=await api('/groups/g1/polls',u1,'POST',{title:'Smoke yes/no',eventAt,bsDate:'2083-04-08',minYes:2,deadlineHours:24,pollType:'yes_no'});
   const yesNo=admin.groups.find((group:any)=>group.id==='g1').polls.find((poll:any)=>poll.title==='Smoke yes/no');assert(yesNo,'Yes/no poll was not created');
@@ -41,5 +42,5 @@ try{
   const db2=new DatabaseSync(database);db2.prepare('UPDATE polls SET deadline_at=? WHERE id=?').run(new Date(Date.now()-1000).toISOString(),optionPoll.id);db2.close();admin=await api('/bootstrap',u1);const completed=admin.groups.find((group:any)=>group.id==='g1').polls.find((poll:any)=>poll.id===optionPoll.id);assert(completed.status==='confirmed'&&completed.winningOptions.includes('option_1'),'Option result was not finalized');const due=admin.notifications.find((item:any)=>item.type==='event_due'&&item.entityId===optionPoll.id);assert(due&&!due.canClear,'Persistent winner reminder missing');
   const clearAttempt=await fetch(`${root}/notifications/${due.id}`,{method:'DELETE',headers:{Authorization:`Bearer ${u1}`}});assert(clearAttempt.status===409,'Persistent event reminder was clearable before the event');
   await api(`/polls/${yesNo.id}`,u1,'DELETE');admin=await api('/bootstrap',u1);assert(!admin.groups.find((group:any)=>group.id==='g1').polls.some((poll:any)=>poll.id===yesNo.id),'Live poll deletion failed');
-  console.log(JSON.stringify({ok:true,multipleActive:true,multipleGroups:true,optionVoting:true,nota:true,pollApproval:true,paymentInboxCount:10,notificationReadRetention:true,connections:true,nonMemberVoteBlocked:true,chatRetentionDays:10,persistentWinnerReminder:true,liveDelete:true}));
+  console.log(JSON.stringify({ok:true,paymentQrRemoved:true,multipleActive:true,multipleGroups:true,optionVoting:true,nota:true,pollApproval:true,paymentInboxCount:10,notificationReadRetention:true,connections:true,nonMemberVoteBlocked:true,chatRetentionDays:10,persistentWinnerReminder:true,liveDelete:true}));
 } finally {server.kill('SIGTERM');rmSync(temp,{recursive:true,force:true})}

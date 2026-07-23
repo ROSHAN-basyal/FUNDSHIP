@@ -24,7 +24,7 @@ The database is created and seeded at `server/data/sajilo.db` on first API start
 
 ## Included flows
 
-- System-issued credential login, first-login fingerprint enrollment, biometric return login, password change, MPIN verification/change, and generic payment number/QR setup.
+- System-issued credential login, first-login fingerprint enrollment, biometric return login, password change, MPIN verification/change, and payment-linked phone-number setup.
 - Netted person-to-person ledger with incoming/outgoing pending requests.
 - Lend requests, individual requests, single or bulk biometric-first verification, equal/manual group splits, and verified bilateral transaction history.
 - Group creation, invitation approval, automatic member connections, manual connection requests, group ordering, animated swipe navigation, and text-only chat.
@@ -99,7 +99,7 @@ The GitHub workflow in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) ty
 
 Passwords and MPINs retain compatibility with existing local SHA-256 demo records, then are upgraded to bcrypt on successful password login or MPIN change. The Supabase tables have RLS enabled with no public Data API policies; the trusted Vercel API is the only intended data path.
 
-Profile images and payment QR images are still stored as text fields for compatibility. Moving them into private Supabase Storage and adding FCM/APNs server-originated push delivery remain later production-hardening steps.
+Profile images are still stored as text fields for compatibility. Moving them into private Supabase Storage and adding FCM/APNs server-originated push delivery remain later production-hardening steps.
 
 ## Poll reminder behavior
 

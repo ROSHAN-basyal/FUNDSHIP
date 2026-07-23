@@ -10,7 +10,7 @@ const sqliteSchema = `
     id TEXT PRIMARY KEY, credential_id TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
     phone TEXT, password_hash TEXT NOT NULL, mpin_hash TEXT,
     must_change_password INTEGER DEFAULT 1, avatar_color TEXT NOT NULL,
-    profile_photo TEXT, esewa_qr TEXT
+    profile_photo TEXT
   );
   CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL
@@ -70,10 +70,18 @@ async function ensureColumn(db: AppDatabase, table: string, column: string, defi
   }
 }
 
+async function dropColumnIfExists(db: AppDatabase, table: string, column: string) {
+  const columns = await db.all<{ name: string }>(`PRAGMA table_info(${table})`);
+  if (columns.some((item) => item.name === column)) {
+    await db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+  }
+}
+
 export async function initializeLocalDatabase(db: AppDatabase) {
   if (db.kind !== 'sqlite') return;
 
   await db.exec(sqliteSchema);
+  await dropColumnIfExists(db, 'users', 'esewa_qr');
   await ensureColumn(db, 'polls', 'poll_type', "TEXT NOT NULL DEFAULT 'yes_no'");
   await ensureColumn(db, 'polls', 'options_json', 'TEXT');
   await ensureColumn(db, 'polls', 'winning_option', 'TEXT');

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Bell, Camera, Check, ImagePlus, KeyRound, Link2, LockKeyhole, QrCode, Shield, Smartphone, UserPlus, X } from 'lucide-react';
+import { Bell, Camera, Check, KeyRound, Link2, LockKeyhole, Shield, Smartphone, UserPlus, X } from 'lucide-react';
 import { Modal } from './Modal';
 import { Avatar } from './Avatar';
 import { mutate, request } from '../lib/api';
@@ -12,12 +12,12 @@ function readImage(file:File,onDone:(data:string)=>void){
 
 export function ProfileModal({data,onClose,onData,notify}:{data:Bootstrap;onClose:()=>void;onData:(d:Bootstrap)=>void;notify:(s:string)=>void}){
   const [tab,setTab]=useState<'profile'|'connections'|'security'>('profile');
-  const [phone,setPhone]=useState(data.user.phone||'');const[photo,setPhoto]=useState(data.user.profilePhoto||'');const[qr,setQr]=useState(data.user.paymentQr||data.user.esewaQr||'');
+  const [phone,setPhone]=useState(data.user.phone||'');const[photo,setPhoto]=useState(data.user.profilePhoto||'');
   const [oldPassword,setOldPassword]=useState('');const[newPassword,setNewPassword]=useState('');
   const [password,setPassword]=useState('');const[oldMpin,setOldMpin]=useState('');const[newMpin,setNewMpin]=useState('');
   const [busy,setBusy]=useState(false);const[error,setError]=useState('');
   const [connectionId,setConnectionId]=useState('');
-  async function saveProfile(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{const d=await mutate('/profile',{phone,profilePhoto:photo,paymentQr:qr});onData(d);notify('Profile updated');onClose();}catch(err){setError(err instanceof Error?err.message:'Could not update profile.')}finally{setBusy(false)}}
+  async function saveProfile(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{const d=await mutate('/profile',{phone,profilePhoto:photo});onData(d);notify('Profile updated');onClose();}catch(err){setError(err instanceof Error?err.message:'Could not update profile.')}finally{setBusy(false)}}
   async function changePassword(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{await request('/auth/change-password',{method:'POST',body:JSON.stringify({oldPassword,newPassword})});notify('Password changed');setOldPassword('');setNewPassword('');}catch(err){setError(err instanceof Error?err.message:'Could not change password.')}finally{setBusy(false)}}
   async function changeMpin(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{await request('/auth/change-mpin',{method:'POST',body:JSON.stringify({password,oldMpin,newMpin})});notify('MPIN changed');setPassword('');setOldMpin('');setNewMpin('');}catch(err){setError(err instanceof Error?err.message:'Could not change MPIN.')}finally{setBusy(false)}}
   async function sendConnection(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{const d=await mutate('/connections/request',{credentialId:connectionId});onData(d);setConnectionId('');notify('Connection request sent');}catch(err){setError(err instanceof Error?err.message:'Could not send request.')}finally{setBusy(false)}}
@@ -27,7 +27,6 @@ export function ProfileModal({data,onClose,onData,notify}:{data:Bootstrap;onClos
     {tab==='profile'?<form className="stack-form" onSubmit={saveProfile}>
       <div className="profile-photo-row"><div className="photo-preview">{photo?<img src={photo} alt="Profile preview"/>:<Avatar name={data.user.name} color={data.user.avatarColor} size="xl"/>}<label><Camera size={15}/><input type="file" accept="image/*" onChange={e=>e.target.files?.[0]&&readImage(e.target.files[0],setPhoto)}/></label></div><div><strong>{data.user.name}</strong><span>{data.user.credentialId}</span></div></div>
       <label><span>Payment-linked phone number</span><input inputMode="tel" maxLength={10} value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,''))} placeholder="98XXXXXXXX"/></label>
-      <div className="field-block"><span className="field-label">Payment QR code</span><label className={`qr-upload ${qr?'has-image':''}`}>{qr?<img src={qr} alt="Payment QR preview"/>:<><QrCode size={28}/><strong>Upload your payment QR</strong><span>Shown when someone settles with you</span></>}<input type="file" accept="image/*" onChange={e=>e.target.files?.[0]&&readImage(e.target.files[0],setQr)}/><i><ImagePlus size={15}/> {qr?'Replace':'Choose image'}</i></label></div>
       {error&&<div className="form-error">{error}</div>}<button className="primary-btn full" disabled={busy}><Check size={18}/>{busy?'Saving…':'Save profile'}</button>
     </form>:tab==='connections'?<div className="connection-panel">
       <form className="connection-form" onSubmit={sendConnection}><label><span>Connect by user ID</span><div><input value={connectionId} onChange={e=>setConnectionId(e.target.value.toUpperCase())} placeholder="e.g. NP-002"/><button disabled={busy||!connectionId.trim()}><UserPlus size={17}/> Send</button></div></label></form>

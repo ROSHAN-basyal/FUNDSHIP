@@ -10,8 +10,7 @@ create table if not exists public.users (
   mpin_hash text,
   must_change_password boolean not null default true,
   avatar_color text not null,
-  profile_photo text,
-  esewa_qr text
+  profile_photo text
 );
 
 create table if not exists public.sessions (

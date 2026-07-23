@@ -5,9 +5,6 @@ export type User = {
   phone?: string;
   avatarColor: string;
   profilePhoto?: string;
-  paymentQr?: string;
-  /** @deprecated Kept while existing local databases migrate to paymentQr. */
-  esewaQr?: string;
   mustChangePassword?: boolean;
   role?: 'admin' | 'member';
 };

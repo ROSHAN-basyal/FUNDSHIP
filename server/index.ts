@@ -70,8 +70,6 @@ const publicUser = (row: any) => ({
   phone: row.phone,
   avatarColor: row.avatar_color,
   profilePhoto: row.profile_photo,
-  paymentQr: row.esewa_qr,
-  esewaQr: row.esewa_qr,
   mustChangePassword: Boolean(row.must_change_password),
 });
 
@@ -634,18 +632,15 @@ app.post('/api/profile', auth, async (req: AuthedRequest, res) => {
     return;
   }
   const current = await db.get<any>(
-    'SELECT profile_photo,esewa_qr FROM users WHERE id=?',
+    'SELECT profile_photo FROM users WHERE id=?',
     [req.userId!],
   );
   const profilePhoto = req.body?.profilePhoto === undefined
     ? current?.profile_photo
     : req.body.profilePhoto;
-  const paymentQr = req.body?.paymentQr === undefined
-    ? (req.body?.esewaQr === undefined ? current?.esewa_qr : req.body.esewaQr)
-    : req.body.paymentQr;
   await db.run(
-    'UPDATE users SET phone=?, profile_photo=?, esewa_qr=? WHERE id=?',
-    [phone, profilePhoto || null, paymentQr || null, req.userId!],
+    'UPDATE users SET phone=?, profile_photo=? WHERE id=?',
+    [phone, profilePhoto || null, req.userId!],
   );
   res.json(await getBootstrap(req.userId!));
 });
