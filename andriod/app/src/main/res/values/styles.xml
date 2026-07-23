@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Base application theme. -->
+    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+        <!-- Customize your theme here. -->
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorAccent">@color/colorAccent</item>
+    </style>
+
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:background">@null</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#F7F5EE</item>
+        <item name="android:navigationBarColor">#F7F5EE</item>
+        <item name="alertDialogTheme">@style/FundshipDialog</item>
+    </style>
+
+    <style name="FundshipDialog" parent="Theme.AppCompat.Light.Dialog.Alert">
+        <item name="colorAccent">@color/colorAccent</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:textColorPrimary">@color/fundshipInk</item>
+        <item name="android:textColorSecondary">@color/fundshipMuted</item>
+        <item name="android:windowBackground">@drawable/bg_fundship_dialog</item>
+        <item name="android:gravity">bottom</item>
+        <item name="android:windowMinWidthMajor">100%</item>
+        <item name="android:windowMinWidthMinor">100%</item>
+        <item name="android:windowAnimationStyle">@style/FundshipDialogAnimation</item>
+    </style>
+
+    <style name="FundshipDialogAnimation">
+        <item name="android:windowEnterAnimation">@anim/fundship_sheet_in</item>
+        <item name="android:windowExitAnimation">@anim/fundship_sheet_out</item>
+    </style>
+
+    <style name="AppTheme.PollAlert" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">#153B35</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowFullscreen">false</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">#153B35</item>
+        <item name="android:statusBarColor">#153B35</item>
+    </style>
+
+
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="android:background">@drawable/splash_screen</item>
+        <item name="windowSplashScreenBackground">#173B35</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_sajilo_foreground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+    </style>
+</resources>

@@ -1,0 +1,12 @@
+{
+  "name": "Sajilo — Plans & Payments",
+  "short_name": "Sajilo",
+  "description": "Plan together and settle shared money simply.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f5ee",
+  "theme_color": "#173b35",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

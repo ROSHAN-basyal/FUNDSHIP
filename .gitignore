@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+server/data/*.db
+server/data/*.db-*
+*.log
+*.tsbuildinfo
+.vercel
+supabase/.temp

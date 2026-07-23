@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FUNDSHIP</string>
+    <string name="title_activity_main">FUNDSHIP</string>
+    <string name="package_name">com.sajilo.split</string>
+    <string name="custom_url_scheme">com.sajilo.split</string>
+    <string name="poll_channel_name">Urgent poll alerts</string>
+    <string name="poll_channel_description">Full-screen and heads-up alerts for time-sensitive group polls</string>
+    <string name="poll_alert_label">FUNDSHIP poll</string>
+    <string name="poll_yes">Yes</string>
+    <string name="poll_later">Later</string>
+    <string name="poll_no">No</string>
+    <string name="payment_channel_name">Payment requests</string>
+    <string name="payment_channel_description">Incoming payment and verification requests</string>
+    <string name="payment_notification_title">Request from %1$s</string>
+    <string name="payment_public_title">New payment request</string>
+    <string name="payment_public_text">Open FUNDSHIP to review it</string>
+    <string name="payment_review">Review</string>
+    <string name="update_channel_name">FUNDSHIP updates</string>
+    <string name="update_channel_description">Poll results, invitations, and connection requests</string>
+    <string name="event_channel_name">Confirmed events</string>
+    <string name="event_channel_description">Event reminders kept until the event begins</string>
+</resources>

@@ -1,0 +1,8 @@
+*.bat text eol=crlf whitespace=cr-at-eol
+*.sh text eol=lf
+*.gradle text eol=lf
+*.java text eol=lf
+*.kt text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.sql text eol=lf

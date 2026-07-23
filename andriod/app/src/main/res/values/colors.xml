@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#173B35</color>
+    <color name="colorPrimaryDark">#173B35</color>
+    <color name="colorAccent">#DD704A</color>
+    <color name="fundshipPaper">#FFFDFA</color>
+    <color name="fundshipInk">#173B35</color>
+    <color name="fundshipMuted">#78827D</color>
+</resources>
