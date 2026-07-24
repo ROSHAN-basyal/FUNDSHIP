@@ -18,7 +18,12 @@ const converter = () => dateConverter ??= require('./vendor/nepali-date-converte
 const adToBs = (value: string) => converter().adToBs(value);
 const bsToAd = (value: string) => converter().bsToAd(value);
 
-type AuthedRequest = Request & { userId?: string; mustChangePassword?: boolean; mustCreateMpin?: boolean };
+type AuthedRequest = Request & {
+  userId?: string;
+  sessionToken?: string;
+  mustChangePassword?: boolean;
+  mustCreateMpin?: boolean;
+};
 type PollOption = { id: string; label: string };
 
 let database: AppDatabase | undefined;
@@ -569,6 +574,7 @@ async function auth(req: AuthedRequest, res: Response, next: NextFunction) {
       return;
     }
     req.userId = session.user_id;
+    req.sessionToken = token;
     req.mustChangePassword = Boolean(session.must_change_password);
     req.mustCreateMpin = !session.mpin_hash;
     if (
@@ -649,6 +655,14 @@ app.post('/api/auth/change-password', auth, async (req: AuthedRequest, res) => {
     'UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?',
     [await createSecretHash(String(newPassword)), req.userId!],
   );
+  res.json({ ok: true });
+});
+
+app.post('/api/auth/logout', auth, async (req: AuthedRequest, res) => {
+  await db.run('DELETE FROM sessions WHERE token=? AND user_id=?', [
+    req.sessionToken!,
+    req.userId!,
+  ]);
   res.json({ ok: true });
 });
 

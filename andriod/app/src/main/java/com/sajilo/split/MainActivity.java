@@ -96,6 +96,7 @@ public class MainActivity extends AppCompatActivity {
     void toast(String value){Toast.makeText(this,value,Toast.LENGTH_SHORT).show();}
     void refresh(){loadBootstrap(false);}
     void acceptBackgroundData(JSONObject response){data=response;deliverNotifications();updateBell();}
+    private void signOut(){Runnable finish=()->{api.clearToken();sessions.clear();showLogin();};api.post("/auth/logout",new JSONObject(),new FundsApi.Callback(){public void success(JSONObject ignored){finish.run();}public void error(String ignored){finish.run();}});}
 
     void payPerson(JSONObject person){
         String number=person.optString("phone").replaceAll("\\s+","");
@@ -195,7 +196,7 @@ public class MainActivity extends AppCompatActivity {
         TextView save=NativeUi.button(this,"Save and continue",Color.WHITE,NativeUi.ORANGE,14);page.addView(save,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,55)),0,20,0,0));
         TextView signOut=NativeUi.button(this,"Sign out",NativeUi.RED,NativeUi.RED_SOFT,12);page.addView(signOut,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,50)),0,12,0,0));
         save.setOnClickListener(v->{String newValue=next.getText().toString();if(newValue.length()<8){next.setError("Use at least 8 characters");return;}if(!newValue.equals(confirm.getText().toString())){confirm.setError("Passwords do not match");return;}setBusy(save,true,"Saving…");JSONObject request=new JSONObject();try{request.put("oldPassword",current.getText().toString());request.put("newPassword",newValue);}catch(Exception ignored){}api.post("/auth/change-password",request,new FundsApi.Callback(){public void success(JSONObject ignored){loadBootstrap(true);}public void error(String message){setBusy(save,false,"Save and continue");toast(message);}});});
-        signOut.setOnClickListener(v->{api.clearToken();sessions.clear();showLogin();});root.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
+        signOut.setOnClickListener(v->signOut());root.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
     }
 
     private void showRequiredMpinSetup(){
@@ -209,7 +210,7 @@ public class MainActivity extends AppCompatActivity {
         TextView save=NativeUi.button(this,"Finish setup",Color.WHITE,NativeUi.ORANGE,14);page.addView(save,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,55)),0,20,0,0));
         TextView signOut=NativeUi.button(this,"Sign out",NativeUi.RED,NativeUi.RED_SOFT,12);page.addView(signOut,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,50)),0,12,0,0));
         save.setOnClickListener(v->{String value=mpin.getText().toString();if(!value.matches("^\\d{4}$")){mpin.setError("Choose exactly 4 digits");return;}if(!value.equals(confirm.getText().toString())){confirm.setError("MPINs do not match");return;}setBusy(save,true,"Saving…");JSONObject request=new JSONObject();try{request.put("newMpin",value);}catch(Exception ignored){}api.post("/auth/set-mpin",request,new FundsApi.Callback(){public void success(JSONObject ignored){loadBootstrap(true);}public void error(String message){setBusy(save,false,"Finish setup");toast(message);}});});
-        signOut.setOnClickListener(v->{api.clearToken();sessions.clear();showLogin();});root.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
+        signOut.setOnClickListener(v->signOut());root.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
     }
     private void showLoading(){root.removeAllViews();root.setBackgroundColor(NativeUi.INK);WindowCompat.getInsetsController(getWindow(),getWindow().getDecorView()).setAppearanceLightStatusBars(false);LinearLayout box=new LinearLayout(this);box.setGravity(Gravity.CENTER);box.setOrientation(LinearLayout.VERTICAL);box.setBackgroundColor(NativeUi.INK);TextView mark=NativeUi.text(this,"F",25,Color.WHITE,true);mark.setGravity(Gravity.CENTER);mark.setBackground(NativeUi.shape(this,NativeUi.ORANGE,20));box.addView(mark,new LinearLayout.LayoutParams(NativeUi.dp(this,68),NativeUi.dp(this,68)));TextView label=NativeUi.text(this,"FUNDSHIP",18,Color.WHITE,true);box.addView(label,NativeUi.margins(this,new LinearLayout.LayoutParams(-2,NativeUi.dp(this,40)),0,13,0,0));root.addView(box,new FrameLayout.LayoutParams(-1,-1));}
 
@@ -292,7 +293,7 @@ public class MainActivity extends AppCompatActivity {
 
         JSONArray connections=data.optJSONArray("connections");if(connections==null||connections.length()==0){LinearLayout empty=NativeUi.sectionCard(this);TextView emptyText=NativeUi.text(this,"No connections yet. Enter a user ID above to connect.",12,NativeUi.MUTED,false);emptyText.setGravity(Gravity.CENTER);empty.addView(emptyText,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,62)));content.addView(empty,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,88)));}else for(JSONObject person:NativeUi.objects(connections))content.addView(simpleRow("✓",person.optString("name"),person.optString("credentialId")+" · Connected"),NativeUi.margins(this,new LinearLayout.LayoutParams(-1,-2),0,0,0,8));
 
-        TextView signOut=NativeUi.button(this,"Sign out",NativeUi.RED,Color.WHITE,12);signOut.setBackground(NativeUi.ripple(this,NativeUi.outlined(this,Color.WHITE,Color.rgb(236,196,190),12)));content.addView(signOut,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,50)),0,20,0,0));signOut.setOnClickListener(v->{sheetRef[0].dismiss();api.clearToken();sessions.clear();showLogin();});
+        TextView signOut=NativeUi.button(this,"Sign out",NativeUi.RED,Color.WHITE,12);signOut.setBackground(NativeUi.ripple(this,NativeUi.outlined(this,Color.WHITE,Color.rgb(236,196,190),12)));content.addView(signOut,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,50)),0,20,0,0));signOut.setOnClickListener(v->{sheetRef[0].dismiss();signOut();});
         sheetRef[0]=FundshipSheet.show(this,"Your account","Profile","Manage your payment handoff and connections.",content,null,92,null);
     }
 
