@@ -48,8 +48,8 @@ final class FundsApi {
             try {
                 connection = (HttpURLConnection) new URL(ROOT + path).openConnection();
                 connection.setRequestMethod(method);
-                connection.setConnectTimeout(7000);
-                connection.setReadTimeout(10000);
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(35000);
                 connection.setRequestProperty("Accept", "application/json");
                 connection.setRequestProperty("Content-Type", "application/json");
                 if (!token.isEmpty()) connection.setRequestProperty("Authorization", "Bearer " + token);

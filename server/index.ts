@@ -289,20 +289,34 @@ async function hydrateNotifications() {
   }
 }
 
+let maintenanceCompletedAt = 0;
+let maintenanceInFlight: Promise<void> | undefined;
+
 async function runMaintenance() {
-  await connectGroupMembers();
-  await db.run(
-    'DELETE FROM messages WHERE created_at < ?',
-    [new Date(Date.now() - 10 * 86_400_000).toISOString()],
-  );
-  const pollThreshold = threeMonthsAgo();
-  await db.run(
-    'DELETE FROM votes WHERE poll_id IN (SELECT id FROM polls WHERE created_at < ?)',
-    [pollThreshold],
-  );
-  await db.run('DELETE FROM polls WHERE created_at < ?', [pollThreshold]);
-  await evaluatePolls();
-  await hydrateNotifications();
+  if (Date.now() - maintenanceCompletedAt < 60_000) {
+    await evaluatePolls();
+    return;
+  }
+  if (maintenanceInFlight) return maintenanceInFlight;
+  maintenanceInFlight = (async () => {
+    await connectGroupMembers();
+    await db.run(
+      'DELETE FROM messages WHERE created_at < ?',
+      [new Date(Date.now() - 10 * 86_400_000).toISOString()],
+    );
+    const pollThreshold = threeMonthsAgo();
+    await db.run(
+      'DELETE FROM votes WHERE poll_id IN (SELECT id FROM polls WHERE created_at < ?)',
+      [pollThreshold],
+    );
+    await db.run('DELETE FROM polls WHERE created_at < ?', [pollThreshold]);
+    await evaluatePolls();
+    await hydrateNotifications();
+    maintenanceCompletedAt = Date.now();
+  })().finally(() => {
+    maintenanceInFlight = undefined;
+  });
+  return maintenanceInFlight;
 }
 
 async function getBootstrap(userId: string) {
