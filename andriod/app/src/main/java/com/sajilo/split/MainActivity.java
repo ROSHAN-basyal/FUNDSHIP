@@ -68,6 +68,7 @@ public class MainActivity extends AppCompatActivity {
     private ViewPager2 pager;
     private PageAdapter pageAdapter;
     private LinearLayout bottomNav;
+    private int bottomNavSlots=2;
     private TextView bellBadge;
     private int currentPage;
 
@@ -226,8 +227,8 @@ public class MainActivity extends AppCompatActivity {
         int selected=currentPage;root.removeAllViews();root.setBackgroundColor(NativeUi.BG);WindowCompat.getInsetsController(getWindow(),getWindow().getDecorView()).setAppearanceLightStatusBars(true);LinearLayout shell=new LinearLayout(this);shell.setOrientation(LinearLayout.VERTICAL);shell.setBackgroundColor(NativeUi.BG);
         shell.addView(buildToolbar(),new LinearLayout.LayoutParams(-1,NativeUi.dp(this,62)));
         pager=new ViewPager2(this);pager.setOrientation(ViewPager2.ORIENTATION_HORIZONTAL);pager.setClipToPadding(false);pager.setClipChildren(true);pager.setOffscreenPageLimit(1);pageAdapter=new PageAdapter();pager.setAdapter(pageAdapter);pager.setPageTransformer((page,position)->page.setAlpha(.76f+.24f*Math.max(0f,1f-Math.abs(position))));
-        shell.addView(pager,new LinearLayout.LayoutParams(-1,0,1));bottomNav=new LinearLayout(this);bottomNav.setGravity(Gravity.CENTER);bottomNav.setWeightSum(5);bottomNav.setBackgroundColor(NativeUi.PAPER);NativeUi.elevate(bottomNav,8);shell.addView(bottomNav,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,68)));root.addView(shell,new FrameLayout.LayoutParams(-1,-1));
-        rebuildBottomNav();pager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback(){@Override public void onPageSelected(int position){currentPage=position;rebuildBottomNav();}});pager.setCurrentItem(Math.min(selected,pageAdapter.getItemCount()-1),false);
+        shell.addView(pager,new LinearLayout.LayoutParams(-1,0,1));bottomNav=new LinearLayout(this);bottomNav.setOrientation(LinearLayout.HORIZONTAL);bottomNav.setGravity(Gravity.CENTER);bottomNav.setBaselineAligned(false);bottomNav.setBackgroundColor(NativeUi.PAPER);NativeUi.elevate(bottomNav,8);shell.addView(bottomNav,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,68)));root.addView(shell,new FrameLayout.LayoutParams(-1,-1));
+        pager.setCurrentItem(Math.min(selected,pageAdapter.getItemCount()-1),false);rebuildBottomNav();pager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback(){@Override public void onPageSelected(int position){currentPage=position;bottomNav.post(MainActivity.this::rebuildBottomNav);}});
     }
 
     private View buildToolbar(){
@@ -240,8 +241,49 @@ public class MainActivity extends AppCompatActivity {
         return bar;
     }
 
-    private void rebuildBottomNav(){if(bottomNav==null)return;bottomNav.removeAllViews();addNav(R.drawable.ic_home_outline,null,"Home",0);JSONArray groups=data.optJSONArray("groups");int shown=Math.min(3,groups==null?0:groups.length());for(int index=0;index<shown;index++){JSONObject group=groups.optJSONObject(index);addNav(0,group.optString("emoji","●"),first(group.optString("name")),index+1);}addNav(R.drawable.ic_groups_outline,null,"Groups",-1);}
-    private void addNav(int drawable,String emoji,String label,int page){LinearLayout item=new LinearLayout(this);item.setOrientation(LinearLayout.VERTICAL);item.setGravity(Gravity.CENTER_HORIZONTAL);boolean active=page==currentPage;View indicator=new View(this);indicator.setBackgroundColor(active?NativeUi.ORANGE:Color.TRANSPARENT);item.addView(indicator,new LinearLayout.LayoutParams(NativeUi.dp(this,28),NativeUi.dp(this,2)));if(drawable!=0){ImageView symbol=NativeUi.icon(this,drawable,active?NativeUi.INK:NativeUi.MUTED,6);item.addView(symbol,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,36)));}else{TextView symbol=NativeUi.text(this,emoji,19,NativeUi.INK,false);symbol.setGravity(Gravity.CENTER);item.addView(symbol,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,36)));}TextView name=NativeUi.text(this,label,10,active?NativeUi.INK:NativeUi.MUTED,active);name.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL);item.addView(name,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,24)));bottomNav.addView(item,new LinearLayout.LayoutParams(0,-1,1));item.setOnClickListener(view->{if(page>=0)pager.setCurrentItem(page,true);else showGroups();});}
+    private void rebuildBottomNav(){
+        if(bottomNav==null)return;
+        bottomNav.removeAllViews();
+        JSONArray groups=data.optJSONArray("groups");
+        int groupCount=groups==null?0:groups.length();
+        int shown=Math.min(3,groupCount);
+        bottomNavSlots=shown+2;
+        addNav(R.drawable.ic_home_outline,null,"Home",0);
+        for(int index=0;index<shown;index++){
+            JSONObject group=groups.optJSONObject(index);
+            addNav(0,group.optString("emoji","●"),first(group.optString("name")),index+1);
+        }
+        if(groupCount==0)addNav(0,"＋","Create Group",-2);
+        else addNav(R.drawable.ic_groups_outline,null,"Groups",-1);
+    }
+    private void addNav(int drawable,String emoji,String label,int page){
+        LinearLayout item=new LinearLayout(this);
+        item.setOrientation(LinearLayout.VERTICAL);
+        item.setGravity(Gravity.CENTER);
+        item.setClickable(true);
+        item.setFocusable(true);
+        item.setContentDescription(label);
+        boolean active=page==currentPage;
+        View indicator=new View(this);
+        indicator.setBackgroundColor(active?NativeUi.ORANGE:Color.TRANSPARENT);
+        item.addView(indicator,new LinearLayout.LayoutParams(NativeUi.dp(this,28),NativeUi.dp(this,2)));
+        if(drawable!=0){
+            ImageView symbol=NativeUi.icon(this,drawable,active?NativeUi.INK:NativeUi.MUTED,6);
+            item.addView(symbol,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,36)));
+        }else{
+            TextView symbol=NativeUi.text(this,emoji,19,active?NativeUi.INK:NativeUi.MUTED,false);
+            symbol.setGravity(Gravity.CENTER);
+            item.addView(symbol,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,36)));
+        }
+        TextView name=NativeUi.text(this,label,10,active?NativeUi.INK:NativeUi.MUTED,active);
+        name.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+        name.setSingleLine(true);
+        item.addView(name,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,24)));
+        int barWidth=bottomNav.getWidth();
+        if(barWidth<=0)barWidth=getResources().getDisplayMetrics().widthPixels;
+        bottomNav.addView(item,new LinearLayout.LayoutParams(barWidth/bottomNavSlots,NativeUi.dp(this,68)));
+        item.setOnClickListener(view->{if(page>=0)pager.setCurrentItem(page,true);else if(page==-2)createGroup();else showGroups();});
+    }
     private String first(String name){String[] parts=name.split(" ");return parts.length==0?name:parts[0];}
 
     private final class PageAdapter extends RecyclerView.Adapter<PageAdapter.Holder>{
