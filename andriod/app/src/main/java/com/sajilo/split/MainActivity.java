@@ -12,6 +12,8 @@ import android.net.Uri;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
@@ -53,6 +55,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Date;
+import java.util.TimeZone;
 import java.text.SimpleDateFormat;
 import java.util.concurrent.Executor;
 
@@ -63,6 +67,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String PAYMENT_LABEL = "payment_label";
     private final FundsApi api = new FundsApi();
     private SecureSessionStore sessions;
+    private SnapshotStore snapshots;
     private FrameLayout root;
     private JSONObject data;
     private ViewPager2 pager;
@@ -71,6 +76,10 @@ public class MainActivity extends AppCompatActivity {
     private int bottomNavSlots=2;
     private TextView bellBadge;
     private int currentPage;
+    private final Handler syncHandler=new Handler(Looper.getMainLooper());
+    private boolean syncInFlight;
+    private boolean foreground;
+    private final Runnable foregroundSync=new Runnable(){@Override public void run(){syncNow(false);if(foreground)syncHandler.postDelayed(this,6000);}};
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         SplashScreen.installSplashScreen(this);
@@ -79,25 +88,67 @@ public class MainActivity extends AppCompatActivity {
         WindowInsetsControllerCompat bars=WindowCompat.getInsetsController(window,window.getDecorView());bars.setAppearanceLightStatusBars(true);bars.setAppearanceLightNavigationBars(true);
         setContentView(R.layout.activity_main);root=findViewById(R.id.nativeRoot);root.setBackgroundColor(NativeUi.BG);
         ViewCompat.setOnApplyWindowInsetsListener(root,(view,insets)->{Insets system=insets.getInsets(WindowInsetsCompat.Type.systemBars());view.setPadding(0,system.top,0,system.bottom);return insets;});
-        ViewCompat.requestApplyInsets(root);sessions=new SecureSessionStore(this);
+        ViewCompat.requestApplyInsets(root);sessions=new SecureSessionStore(this);snapshots=new SnapshotStore(this);
         PollNotificationManager.createChannel(this);PaymentNotificationManager.createChannel(this);AppNotificationManager.createChannels(this);
         requestNotificationPermission();if(sessions.exists())restoreStoredSession();else showLogin();
     }
 
-    @Override protected void onResume(){super.onResume();if(!api.token().isEmpty()){consumePollActions();if(data!=null)loadBootstrap(false);}}
+    @Override protected void onResume(){super.onResume();foreground=true;if(!api.token().isEmpty()){consumePollActions();syncHandler.removeCallbacks(foregroundSync);syncHandler.post(foregroundSync);}}
+
+    @Override protected void onPause(){foreground=false;syncHandler.removeCallbacks(foregroundSync);super.onPause();}
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        if (!api.token().isEmpty()) loadBootstrap(false);
+        if (!api.token().isEmpty()) syncNow(true);
     }
 
     FundsApi api(){return api;}
     JSONObject data(){return data;}
     void toast(String value){Toast.makeText(this,value,Toast.LENGTH_SHORT).show();}
-    void refresh(){loadBootstrap(false);}
-    void acceptBackgroundData(JSONObject response){data=response;deliverNotifications();updateBell();}
-    private void signOut(){Runnable finish=()->{api.clearToken();sessions.clear();showLogin();};api.post("/auth/logout",new JSONObject(),new FundsApi.Callback(){public void success(JSONObject ignored){finish.run();}public void error(String ignored){finish.run();}});}
+    void refresh(){syncNow(true);}
+    boolean isCurrentGroup(String groupId){if(data==null||currentPage<=0)return false;JSONArray groups=data.optJSONArray("groups");JSONObject selected=groups==null?null:groups.optJSONObject(currentPage-1);return selected!=null&&groupId.equals(selected.optString("id"));}
+    void acceptBackgroundData(JSONObject response){JSONObject snapshot=extractSnapshot(response);if(snapshot==null)return;applySnapshot(snapshot,false);}
+    void acceptChatMessage(String groupId,JSONObject message,long revision){if(data==null||message==null)return;for(JSONObject item:NativeUi.objects(data.optJSONArray("groups"))){if(!groupId.equals(item.optString("id")))continue;JSONArray messages=item.optJSONArray("messages");if(messages==null){messages=new JSONArray();try{item.put("messages",messages);}catch(Exception ignored){}}boolean present=false;for(JSONObject existing:NativeUi.objects(messages))if(message.optString("id").equals(existing.optString("id"))){present=true;break;}if(!present)messages.put(message);break;}try{data.put("revision",Math.max(data.optLong("revision"),revision));}catch(Exception ignored){}snapshots.save(data);}
+    void acceptPollVote(String pollId,String choice,long revision){
+        if(data==null)return;
+        JSONObject user=data.optJSONObject("user");
+        if(user==null)return;
+        try{
+            for(JSONObject group:NativeUi.objects(data.optJSONArray("groups"))){
+                for(JSONObject poll:NativeUi.objects(group.optJSONArray("polls"))){
+                    if(!pollId.equals(poll.optString("id")))continue;
+                    JSONArray votes=poll.optJSONArray("voteDetails");
+                    if(votes==null){votes=new JSONArray();poll.put("voteDetails",votes);}
+                    for(int index=votes.length()-1;index>=0;index--){
+                        JSONObject existing=votes.optJSONObject(index);
+                        if(existing!=null&&user.optString("id").equals(existing.optString("userId")))votes.remove(index);
+                    }
+                    SimpleDateFormat iso=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",Locale.US);
+                    iso.setTimeZone(TimeZone.getTimeZone("UTC"));
+                    JSONObject vote=new JSONObject();
+                    vote.put("userId",user.optString("id"));
+                    vote.put("name",user.optString("name"));
+                    vote.put("avatarColor",user.optString("avatarColor"));
+                    vote.put("choice",choice);
+                    vote.put("createdAt",iso.format(new Date()));
+                    votes.put(vote);
+                    poll.put("myVote",choice);
+                    int yes=0,no=0;
+                    for(JSONObject current:NativeUi.objects(votes)){
+                        if("yes".equals(current.optString("choice")))yes++;
+                        if("no".equals(current.optString("choice")))no++;
+                    }
+                    poll.put("yesCount",yes);
+                    poll.put("noCount",no);
+                    data.put("revision",Math.max(data.optLong("revision"),revision));
+                }
+            }
+        }catch(Exception ignored){}
+        snapshots.save(data);
+        buildShell();
+    }
+    private void signOut(){Runnable finish=()->{api.clearToken();sessions.clear();snapshots.clear();data=null;showLogin();};api.post("/auth/logout",new JSONObject(),new FundsApi.Callback(){public void success(JSONObject ignored){finish.run();}public void error(String ignored){finish.run();}});}
 
     void payPerson(JSONObject person){
         String number=person.optString("phone").replaceAll("\\s+","");
@@ -171,7 +222,7 @@ public class MainActivity extends AppCompatActivity {
     private EditText input(String hint){EditText input=new EditText(this);input.setHint(hint);input.setTextColor(NativeUi.INK);input.setHintTextColor(Color.rgb(145,153,149));input.setTextSize(15);input.setSingleLine(true);input.setPadding(NativeUi.dp(this,14),0,NativeUi.dp(this,14),0);input.setBackground(NativeUi.outlined(this,Color.WHITE,NativeUi.LINE,13));return input;}
     private void setBusy(TextView button,boolean busy,String text){button.setEnabled(!busy);button.setAlpha(busy?.65f:1f);button.setText(text);}
 
-    private void restoreStoredSession(){try{api.setToken(sessions.load());loadBootstrap(true);}catch(Exception error){api.clearToken();sessions.clear();showLogin();toast("Saved sign-in could not be restored. Use your password.");}}
+    private void restoreStoredSession(){try{api.setToken(sessions.load());JSONObject cached=snapshots.load();JSONObject cachedUser=cached==null?null:cached.optJSONObject("user");if(cachedUser!=null&&sessions.credentialId().equalsIgnoreCase(cachedUser.optString("credentialId"))){data=cached;buildShell();ensureFullScreenPollAccess();deliverNotifications();syncNow(true);}else loadBootstrap(true);}catch(Exception error){api.clearToken();sessions.clear();snapshots.clear();showLogin();toast("Saved sign-in could not be restored. Use your password.");}}
     private void rememberSession(String token,String id){try{sessions.save(token,id);}catch(Exception ignored){toast("Signed in, but this phone could not remember the session.");}}
 
     void authenticate(String title,String subtitle,String fallback,Runnable success,Runnable cancelled){
@@ -183,7 +234,10 @@ public class MainActivity extends AppCompatActivity {
     void verifySensitiveAction(String title,String subtitle,Runnable success){authenticate(title,subtitle,"Use MPIN",success,()->showSensitiveMpin(title,success));}
     private void showSensitiveMpin(String title,Runnable success){LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);EditText mpin=NativeUi.input(this,"4-digit MPIN",true);mpin.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_VARIATION_PASSWORD);form.addView(NativeUi.labeled(this,"MPIN",mpin,"Fingerprint was cancelled or unavailable."),new LinearLayout.LayoutParams(-1,-2));FundshipSheet.show(this,"Security check",title,"Confirm this action with your FUNDSHIP MPIN.",form,"Verify",66,sheet->{String value=mpin.getText().toString();if(!value.matches("^\\d{4}$")){mpin.setError("Enter your 4-digit MPIN");return;}sheet.setBusy(true,"Verifying…","Verify");JSONObject body=new JSONObject();try{body.put("mpin",value);}catch(Exception ignored){}api.post("/auth/verify-mpin",body,new FundsApi.Callback(){public void success(JSONObject ignored){sheet.dismiss();success.run();}public void error(String message){sheet.setBusy(false,"","Verify");toast(message);}});});}
 
-    private void loadBootstrap(boolean showLoading){if(showLoading)showLoading();api.bootstrap(new FundsApi.Callback(){public void success(JSONObject response){data=response;JSONObject user=response.optJSONObject("user");if(user!=null&&user.optBoolean("mustChangePassword")){showRequiredPasswordChange();return;}if(user!=null&&!user.optBoolean("hasMpin")){showRequiredMpinSetup();return;}buildShell();ensureFullScreenPollAccess();deliverNotifications();}public void error(String message){if(message.toLowerCase(Locale.ROOT).contains("session")){api.clearToken();sessions.clear();showLogin();}else if(showLoading){showLogin();toast("Failed to fetch: "+message);}}});}
+    private JSONObject extractSnapshot(JSONObject response){if(response==null||!response.optBoolean("changed",response.has("user")))return null;JSONObject nested=response.optJSONObject("snapshot");return nested==null&&response.has("user")?response:nested;}
+    private void applySnapshot(JSONObject snapshot,boolean rebuild){data=snapshot;snapshots.save(snapshot);JSONObject user=snapshot.optJSONObject("user");if(user!=null&&user.optBoolean("mustChangePassword")){showRequiredPasswordChange();return;}if(user!=null&&!user.optBoolean("hasMpin")){showRequiredMpinSetup();return;}if(rebuild)buildShell();deliverNotifications();updateBell();}
+    private void loadBootstrap(boolean showLoading){if(showLoading)showLoading();api.bootstrap(new FundsApi.Callback(){public void success(JSONObject response){applySnapshot(response,true);ensureFullScreenPollAccess();}public void error(String message){if(message.toLowerCase(Locale.ROOT).contains("session")){api.clearToken();sessions.clear();snapshots.clear();showLogin();}else if(showLoading&&data==null){showLogin();toast("Failed to fetch: "+message);}}});}
+    private void syncNow(boolean rebuild){if(syncInFlight||api.token().isEmpty())return;syncInFlight=true;long revision=data==null?0:data.optLong("revision",0);api.sync(revision,new FundsApi.Callback(){public void success(JSONObject response){syncInFlight=false;JSONObject snapshot=extractSnapshot(response);if(snapshot!=null){applySnapshot(snapshot,rebuild||data!=null);ensureFullScreenPollAccess();}}public void error(String message){syncInFlight=false;if(message.toLowerCase(Locale.ROOT).contains("session")){api.clearToken();sessions.clear();snapshots.clear();data=null;showLogin();}}});}
 
     private void showRequiredPasswordChange(){
         root.removeAllViews();root.setBackgroundColor(NativeUi.BG);WindowCompat.getInsetsController(getWindow(),getWindow().getDecorView()).setAppearanceLightStatusBars(true);
@@ -370,12 +424,13 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout simpleRow(String icon,String title,String subtitle){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(NativeUi.dp(this,10),NativeUi.dp(this,9),NativeUi.dp(this,8),NativeUi.dp(this,9));row.setBackground(NativeUi.outlined(this,Color.WHITE,NativeUi.LINE,12));TextView badge=NativeUi.text(this,icon,18,NativeUi.GREEN,true);badge.setGravity(Gravity.CENTER);badge.setBackground(NativeUi.shape(this,NativeUi.GREEN_SOFT,10));row.addView(badge,new LinearLayout.LayoutParams(NativeUi.dp(this,40),NativeUi.dp(this,40)));LinearLayout words=new LinearLayout(this);words.setOrientation(LinearLayout.VERTICAL);TextView top=NativeUi.text(this,title,14,NativeUi.INK,true),bottom=NativeUi.text(this,subtitle,11,NativeUi.MUTED,false);words.addView(top);words.addView(bottom);row.addView(words,NativeUi.margins(this,new LinearLayout.LayoutParams(0,-2,1),10,0,8,0));return row;}
     private TextView sheetSection(String title,int count){TextView section=NativeUi.text(this,title+(count>=0?"  ·  "+count:""),13,NativeUi.INK,true);section.setGravity(Gravity.BOTTOM);return section;}
 
-    FundsApi.Callback callbackRefresh(String message){return new FundsApi.Callback(){public void success(JSONObject response){data=response;toast(message);buildShell();deliverNotifications();}public void error(String error){toast(error);}};}
+    FundsApi.Callback callbackRefresh(String message){return new FundsApi.Callback(){public void success(JSONObject response){JSONObject snapshot=extractSnapshot(response);if(snapshot!=null)applySnapshot(snapshot,true);else syncNow(true);toast(message);}public void error(String error){toast(error);}};}
 
     private void deliverNotifications(){
         for(JSONObject item:NativeUi.objects(data.optJSONArray("notifications"))){if(item.optBoolean("nativeDelivered"))continue;boolean shown=false;String type=item.optString("type");if(type.equals("payment_request")){JSONObject payment=findById(data.optJSONObject("payments").optJSONArray("incoming"),item.optString("entityId"));if(payment!=null)shown=PaymentNotificationManager.showIncoming(this,payment.optString("id"),payment.optString("payeeName"),(int)Math.round(payment.optDouble("amount")),payment.optString("purpose"));}else if(type.equals("poll_open")){JSONObject[] owner=findPoll(item.optString("entityId"));if(owner!=null&&(owner[1].isNull("myVote")||owner[1].optString("myVote").isEmpty())){PollPayload payload=payload(owner[0],owner[1]);shown=PollNotificationManager.show(this,payload);}}else shown=AppNotificationManager.show(this,item.optString("id"),item.optString("title"),item.optString("body"),type,parseTime(item.optString("persistentUntil")));
-            if(shown)api.post("/notifications/"+item.optString("id")+"/delivered",new JSONObject(),new FundsApi.Callback(){public void success(JSONObject ignored){}public void error(String ignored){}});
+            if(shown){try{item.put("nativeDelivered",true);}catch(Exception ignored){}api.post("/notifications/"+item.optString("id")+"/delivered",new JSONObject(),new FundsApi.Callback(){public void success(JSONObject ignored){}public void error(String ignored){}});}
         }
+        snapshots.save(data);
     }
 
     private JSONObject findById(JSONArray values,String id){for(JSONObject value:NativeUi.objects(values))if(id.equals(value.optString("id")))return value;return null;}
@@ -384,5 +439,5 @@ public class MainActivity extends AppCompatActivity {
     private long parseTime(String iso){if(iso==null||iso.isEmpty())return 0;for(String format:new String[]{"yyyy-MM-dd'T'HH:mm:ss.SSSX","yyyy-MM-dd'T'HH:mm:ssX"})try{return new SimpleDateFormat(format,Locale.US).parse(iso).getTime();}catch(Exception ignored){}return 0;}
 
     private void consumePollActions(){JSONArray actions=PollNotificationManager.takePendingActions(this);if(actions.length()==0)return;consumeAction(actions,0);}
-    private void consumeAction(JSONArray actions,int index){if(index>=actions.length()){refresh();return;}JSONObject action=actions.optJSONObject(index);if(action==null){consumeAction(actions,index+1);return;}String choice=action.optString("action");if(choice.isEmpty()){consumeAction(actions,index+1);return;}JSONObject body=new JSONObject();try{body.put("choice",choice);}catch(Exception ignored){}String pollId=action.optString("pollId");api.post("/polls/"+pollId+"/vote",body,new FundsApi.Callback(){public void success(JSONObject response){data=response;PollNotificationManager.cancel(MainActivity.this,pollId);consumeAction(actions,index+1);}public void error(String message){toast(message);consumeAction(actions,index+1);}});}
+    private void consumeAction(JSONArray actions,int index){if(index>=actions.length()){if(data!=null){snapshots.save(data);buildShell();deliverNotifications();}syncNow(true);return;}JSONObject action=actions.optJSONObject(index);if(action==null){consumeAction(actions,index+1);return;}String choice=action.optString("action");if(choice.isEmpty()){consumeAction(actions,index+1);return;}JSONObject body=new JSONObject();try{body.put("choice",choice);}catch(Exception ignored){}String pollId=action.optString("pollId");api.post("/polls/"+pollId+"/vote",body,new FundsApi.Callback(){public void success(JSONObject response){JSONObject snapshot=extractSnapshot(response);if(snapshot!=null){data=snapshot;snapshots.save(snapshot);}else acceptPollVote(pollId,choice,response.optLong("revision"));PollNotificationManager.cancel(MainActivity.this,pollId);consumeAction(actions,index+1);}public void error(String message){toast(message);consumeAction(actions,index+1);}});}
 }

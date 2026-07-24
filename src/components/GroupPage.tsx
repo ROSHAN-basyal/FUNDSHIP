@@ -2,11 +2,11 @@ import { useMemo, useRef, useState } from 'react';
 import { BellRing, CalendarDays, Check, CheckCircle2, ChevronRight, Clock3, History, Info, Plus, Send, ShieldCheck, ThumbsDown, ThumbsUp, Trash2, Users, X } from 'lucide-react';
 import { Avatar } from './Avatar';
 import { Modal } from './Modal';
-import { mutate } from '../lib/api';
+import { applyPollVote, mutate, rememberBootstrap, request } from '../lib/api';
 import { isNativeAndroid, showNativePoll } from '../lib/native';
 import { displayName, relativeTime } from '../lib/format';
 import { bsDateTime, bsFromDate, bsMonthLength, eventIsoFromSelection, formatBs, relativeDateChoices } from '../lib/nepaliDate';
-import type { Bootstrap, Group, Poll } from '../types';
+import type { Bootstrap, Group, Message, Poll } from '../types';
 
 function VoteDetailsModal({poll,onClose}:{poll:Poll;onClose:()=>void}) {
   const labels=new Map(poll.options.map(option=>[option.id,option.label]));
@@ -65,14 +65,14 @@ function CreatePollModal({group,onClose,onData,notify}:{group:Group;onClose:()=>
   </form></Modal>;
 }
 
-export function GroupPage({group,userId,onData,notify}:{group:Group;userId:string;onData:(d:Bootstrap)=>void;notify:(s:string)=>void}) {
+export function GroupPage({data,group,userId,onData,notify}:{data:Bootstrap;group:Group;userId:string;onData:(d:Bootstrap)=>void;notify:(s:string)=>void}) {
   const [message,setMessage]=useState('');const[sending,setSending]=useState(false);const[createOpen,setCreateOpen]=useState(false);const[alertPoll,setAlertPoll]=useState<Poll|null>(null);const[membersOpen,setMembersOpen]=useState(false);const[historyOpen,setHistoryOpen]=useState(false);const chatEnd=useRef<HTMLDivElement>(null);
   const activePolls=useMemo(()=>group.polls.filter(p=>p.approvalStatus==='approved'&&p.status==='open'),[group.polls]);const history=group.polls.filter(p=>p.approvalStatus==='approved'&&p.status!=='open');const pendingPolls=group.polls.filter(p=>p.approvalStatus==='pending'&&p.status==='open');
-  async function vote(id:string,choice:string){const d=await mutate(`/polls/${id}/vote`,{choice});onData(d);notify('Vote updated')}
+  async function vote(id:string,choice:string){const result=await request<{revision:number}>(`/polls/${id}/vote`,{method:'POST',body:JSON.stringify({choice})});onData(applyPollVote(data,id,choice,result.revision));notify('Vote updated')}
   async function approve(id:string){const d=await mutate(`/polls/${id}/approve`);onData(d);notify('Poll approved')}
   async function remove(id:string){if(!window.confirm('Delete this live poll?'))return;const d=await mutate(`/polls/${id}`,undefined,'DELETE');onData(d);notify('Poll deleted')}
   async function openAlert(poll:Poll){if(isNativeAndroid){await showNativePoll(group,poll);notify('Native poll alert sent');return}setAlertPoll(poll)}
-  async function send(e:React.FormEvent){e.preventDefault();if(!message.trim())return;setSending(true);try{const d=await mutate(`/groups/${group.id}/messages`,{body:message});setMessage('');onData(d);setTimeout(()=>chatEnd.current?.scrollIntoView({behavior:'smooth'}),50)}finally{setSending(false)}}
+  async function send(e:React.FormEvent){e.preventDefault();if(!message.trim())return;setSending(true);try{const result=await request<{message:Message;revision:number}>(`/groups/${group.id}/messages`,{method:'POST',body:JSON.stringify({body:message})});const next=rememberBootstrap({...data,revision:result.revision,groups:data.groups.map(item=>item.id===group.id?{...item,messages:item.messages.some(existing=>existing.id===result.message.id)?item.messages:[...item.messages,result.message]}:item)});setMessage('');onData(next);setTimeout(()=>chatEnd.current?.scrollIntoView({behavior:'smooth'}),50)}finally{setSending(false)}}
   return <><div className="page-scroll group-page"><section className="group-hero" style={{'--group-accent':group.accent} as React.CSSProperties}><div className="group-title"><span className="group-emoji">{group.emoji}</span><div><span className="eyebrow">Your group</span><h1>{group.name}</h1><p><Users size={14}/>{group.members.length} members · {group.role==='admin'?'You’re an admin':'Member'}</p></div></div><div className="group-actions"><div className="member-stack">{group.members.slice(0,4).map(member=><Avatar key={member.id} name={member.name} color={member.avatarColor} size="sm"/>)}{group.members.length>4&&<span className="member-more">+{group.members.length-4}</span>}</div><button className="poll-create-button" onClick={()=>setCreateOpen(true)}><Plus size={19}/><small>Poll</small></button></div></section>
     <div className="group-layout"><section className="poll-column"><header className="subsection-title"><h2>Active Polls</h2><button className="poll-history-button" onClick={()=>setHistoryOpen(value=>!value)}><History size={15}/> Poll history <span>{history.length}</span></button></header>
       {historyOpen&&<div className="poll-history">{history.map(poll=><article key={poll.id}><span className={`history-status ${poll.status}`}>{poll.status}</span><div><strong>{poll.title}</strong><small>{bsDateTime(poll.eventAt)} · {poll.voteDetails.length} votes</small></div><span>{poll.pollType==='options'?poll.winningOptions.map(id=>poll.options.find(option=>option.id===id)?.label||id).join(' / '):`${poll.yesCount} Yes · ${poll.noCount} No`}</span></article>)}{history.length===0&&<p>No completed polls yet.</p>}</div>}

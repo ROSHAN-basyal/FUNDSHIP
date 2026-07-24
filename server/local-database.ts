@@ -62,6 +62,25 @@ const sqliteSchema = `
   );
   CREATE UNIQUE INDEX IF NOT EXISTS notification_entity_user_type
     ON app_notifications(user_id, type, entity_id);
+  CREATE TABLE IF NOT EXISTS user_sync_state (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS group_members_group_role_idx
+    ON group_members(group_id, role, user_id);
+  CREATE INDEX IF NOT EXISTS group_invites_group_status_created_idx
+    ON group_invites(group_id, status, created_at DESC);
+  CREATE INDEX IF NOT EXISTS polls_group_status_created_idx
+    ON polls(group_id, status, created_at DESC);
+  CREATE INDEX IF NOT EXISTS votes_user_poll_idx ON votes(user_id, poll_id);
+  CREATE INDEX IF NOT EXISTS messages_group_cursor_idx
+    ON messages(group_id, created_at, id);
+  CREATE INDEX IF NOT EXISTS connections_user_a_status_idx
+    ON connections(user_a, status, user_b);
+  CREATE INDEX IF NOT EXISTS connections_user_b_status_idx
+    ON connections(user_b, status, user_a);
+  CREATE INDEX IF NOT EXISTS payment_requests_payee_status_idx
+    ON payment_requests(payee_id, status, created_at DESC);
 `;
 
 async function ensureColumn(db: AppDatabase, table: string, column: string, definition: string) {
@@ -79,13 +98,8 @@ async function dropColumnIfExists(db: AppDatabase, table: string, column: string
 }
 
 export async function initializeLocalDatabase(db: AppDatabase) {
-  if (db.kind === 'postgres') {
-    await db.exec(`
-      ALTER TABLE public.groups
-      ADD COLUMN IF NOT EXISTS members_can_invite boolean NOT NULL DEFAULT false
-    `);
-    return;
-  }
+  // Production schema is managed exclusively by versioned Supabase migrations.
+  if (db.kind === 'postgres') return;
 
   await db.exec(sqliteSchema);
   await dropColumnIfExists(db, 'users', 'esewa_qr');
@@ -108,6 +122,12 @@ export async function initializeLocalDatabase(db: AppDatabase) {
     await tx.run(addUser, ['u3', 'SA-003', 'Sujata Aryal', '9800000003', hash('welcome123'), hash('3690'), 0, '#b76475']);
     await tx.run(addUser, ['u4', 'KS-004', 'Kiran Shrestha', '9800000004', hash('welcome123'), hash('4560'), 0, '#4c9686']);
     await tx.run(addUser, ['u5', 'AP-005', 'Anish Pandey', '9800000005', hash('welcome123'), hash('7890'), 0, '#a779b8']);
+    for (const userId of ['u1', 'u2', 'u3', 'u4', 'u5']) {
+      await tx.run(
+        'INSERT INTO user_sync_state (user_id,revision,updated_at) VALUES (?,?,?)',
+        [userId, 1, new Date().toISOString()],
+      );
+    }
 
     if (!includeDemoGroups) return;
 

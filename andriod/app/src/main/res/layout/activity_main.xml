@@ -2,5 +2,4 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/nativeRoot"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#F7F5EE" />
+    android:layout_height="match_parent" />

@@ -7,7 +7,20 @@ import { displayName } from '../lib/format';
 import type { Bootstrap } from '../types';
 
 function readImage(file:File,onDone:(data:string)=>void){
-  const reader=new FileReader();reader.onload=()=>onDone(String(reader.result));reader.readAsDataURL(file);
+  const reader=new FileReader();
+  reader.onload=()=>{
+    const image=new Image();
+    image.onload=()=>{
+      const scale=Math.min(1,256/Math.max(image.width,image.height));
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.max(1,Math.round(image.width*scale));
+      canvas.height=Math.max(1,Math.round(image.height*scale));
+      canvas.getContext('2d')?.drawImage(image,0,0,canvas.width,canvas.height);
+      onDone(canvas.toDataURL('image/jpeg',.82));
+    };
+    image.src=String(reader.result);
+  };
+  reader.readAsDataURL(file);
 }
 
 export function ProfileModal({data,onClose,onData,notify}:{data:Bootstrap;onClose:()=>void;onData:(d:Bootstrap)=>void;notify:(s:string)=>void}){

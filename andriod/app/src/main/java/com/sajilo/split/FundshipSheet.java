@@ -13,6 +13,8 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.util.Locale;
+
 /** A consistent, native bottom sheet used by the app's larger workflows. */
 final class FundshipSheet {
     interface Action { void run(FundshipSheet sheet); }
@@ -70,7 +72,7 @@ final class FundshipSheet {
         LinearLayout words = new LinearLayout(context);
         words.setOrientation(LinearLayout.VERTICAL);
         if (eyebrow != null && !eyebrow.isEmpty()) {
-            TextView overline = NativeUi.text(context, eyebrow.toUpperCase(), 9, NativeUi.GREEN, true);
+            TextView overline = NativeUi.text(context, eyebrow.toUpperCase(Locale.ROOT), 9, NativeUi.GREEN, true);
             overline.setLetterSpacing(.14f);
             words.addView(overline, new LinearLayout.LayoutParams(-1, dp(19)));
         }

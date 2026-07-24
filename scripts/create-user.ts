@@ -97,6 +97,7 @@ async function main() {
   if (initialPassword !== confirmedPassword) throw new Error("The passwords do not match.");
 
   const passwordHash = await bcrypt.hash(initialPassword, 12);
+  const userId = randomUUID();
   const ssl = process.env.DATABASE_SSL === "disable" ? false : "require";
   const sql = postgres(databaseUrl, { max: 1, prepare: false, ssl });
 
@@ -106,15 +107,21 @@ async function main() {
     `;
     if (existing.length) throw new Error(`User ID "${credentialId}" already exists.`);
 
-    await sql`
-      INSERT INTO users (
-        id, credential_id, name, password_hash, mpin_hash, phone,
-        avatar_url, avatar_color, must_change_password, created_at
-      ) VALUES (
-        ${randomUUID()}, ${credentialId}, ${name}, ${passwordHash}, NULL, NULL,
-        NULL, ${colorFor(credentialId)}, TRUE, ${new Date().toISOString()}
-      )
-    `;
+    await sql.begin(async (transaction) => {
+      await transaction`
+        INSERT INTO users (
+          id, credential_id, name, password_hash, mpin_hash, phone,
+          avatar_color, profile_photo, must_change_password
+        ) VALUES (
+          ${userId}, ${credentialId}, ${name}, ${passwordHash}, NULL, NULL,
+          ${colorFor(credentialId)}, NULL, TRUE
+        )
+      `;
+      await transaction`
+        INSERT INTO user_sync_state (user_id, revision, updated_at)
+        VALUES (${userId}, 1, ${new Date().toISOString()})
+      `;
+    });
   } finally {
     await sql.end({ timeout: 5 });
   }

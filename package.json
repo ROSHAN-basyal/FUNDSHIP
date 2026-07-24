@@ -7,7 +7,7 @@
     "dev": "concurrently -n api,app -c cyan,green \"npm:dev:api\" \"npm:dev:app\"",
     "dev:app": "vite --host 0.0.0.0",
     "dev:api": "tsx watch server/index.ts",
-    "build": "tsc -b && vite build",
+    "build": "tsx scripts/migrate-on-build.ts && tsc -b && vite build",
     "android:web": "tsc -b && VITE_API_URL=http://localhost:8787/api vite build",
     "android:build": "cd andriod && ./gradlew assembleDebug",
     "android:verify": "npm run check && npm run smoke && cd andriod && ./gradlew assembleDebug lintDebug testDebugUnitTest",
@@ -17,6 +17,7 @@
     "smoke": "tsx server/smoke.ts",
     "start": "NODE_ENV=production tsx server/index.ts",
     "user:create": "tsx scripts/create-user.ts",
+    "db:migrate": "tsx scripts/apply-migration.ts",
     "ci": "npm run check && npm run smoke && npm run build"
   },
   "engines": {

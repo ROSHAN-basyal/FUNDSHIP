@@ -96,6 +96,7 @@ export type ConnectionRequest = {
 };
 
 export type Bootstrap = {
+  revision: number;
   user: User;
   people: User[];
   groups: Group[];

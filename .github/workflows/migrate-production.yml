@@ -1,0 +1,38 @@
+name: Migrate production database
+
+on:
+  workflow_dispatch:
+    inputs:
+      migration:
+        description: "Migration filename under supabase/migrations"
+        required: true
+        default: "202607240002_performance_architecture.sql"
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate migration path
+        env:
+          MIGRATION: ${{ inputs.migration }}
+        run: |
+          case "$MIGRATION" in
+            *[!A-Za-z0-9._-]*|"") exit 1 ;;
+          esac
+          test -f "supabase/migrations/$MIGRATION"
+      - name: Apply migration
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_SSL: require
+          MIGRATION: ${{ inputs.migration }}
+        run: npm run db:migrate -- "supabase/migrations/$MIGRATION"

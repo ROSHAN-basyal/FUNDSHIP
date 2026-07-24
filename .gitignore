@@ -8,3 +8,4 @@ server/data/*.db-*
 .vercel
 supabase/.temp
 supabase/link_with_passowrd.txt
+.env*

@@ -38,6 +38,9 @@ final class FundsApi {
     }
 
     void bootstrap(Callback callback) { request("/bootstrap", "GET", null, callback); }
+    void sync(long after, Callback callback) {
+        request("/sync?after=" + Math.max(0, after), "GET", null, callback);
+    }
     void get(String path, Callback callback) { request(path, "GET", null, callback); }
     void post(String path, JSONObject body, Callback callback) { request(path, "POST", body, callback); }
     void delete(String path, Callback callback) { request(path, "DELETE", null, callback); }
@@ -50,8 +53,10 @@ final class FundsApi {
                 connection.setRequestMethod(method);
                 connection.setConnectTimeout(15000);
                 connection.setReadTimeout(35000);
+                connection.setUseCaches(false);
                 connection.setRequestProperty("Accept", "application/json");
                 connection.setRequestProperty("Content-Type", "application/json");
+                connection.setRequestProperty("Connection", "keep-alive");
                 if (!token.isEmpty()) connection.setRequestProperty("Authorization", "Bearer " + token);
                 if (body != null) {
                     connection.setDoOutput(true);
