@@ -10,6 +10,7 @@
     "build": "tsx scripts/migrate-on-build.ts && tsc -b && vite build",
     "android:web": "tsc -b && VITE_API_URL=http://localhost:8787/api vite build",
     "android:build": "cd andriod && ./gradlew assembleDebug",
+    "android:build:local": "cd andriod && ./gradlew assembleDebug -PFUNDSHIP_API_URL=http://127.0.0.1:8787/api",
     "android:verify": "npm run check && npm run smoke && cd andriod && ./gradlew assembleDebug lintDebug testDebugUnitTest",
     "android:install": "adb reverse tcp:8787 tcp:8787 && adb install -r andriod/app/build/outputs/apk/debug/app-debug.apk && adb shell am start -n com.sajilo.split/.MainActivity",
     "android:open": "cap open android",

@@ -2,7 +2,7 @@ apply plugin: 'com.android.application'
 
 def fundshipApiUrl = project.findProperty("FUNDSHIP_API_URL")
         ?: System.getenv("FUNDSHIP_API_URL")
-        ?: "http://127.0.0.1:8787/api"
+        ?: "https://fundship-five.vercel.app/api"
 
 android {
     namespace = "com.sajilo.split"
