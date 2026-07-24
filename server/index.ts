@@ -1684,7 +1684,7 @@ app.get('/api/groups/:id/messages', auth, async (req: AuthedRequest, res) => {
       [groupId, new Date(Date.now() - 10 * 86_400_000).toISOString()],
     );
   const items = messages.map(messageJson);
-  const last = items.at(-1);
+  const last = items.length > 0 ? items[items.length - 1] : undefined;
   res.json({
     messages: items,
     cursor: last ? { createdAt: last.createdAt, id: last.id } : null,
