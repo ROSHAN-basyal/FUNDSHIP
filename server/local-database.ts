@@ -16,7 +16,8 @@ const sqliteSchema = `
     token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS groups (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, emoji TEXT NOT NULL, accent TEXT NOT NULL
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, emoji TEXT NOT NULL, accent TEXT NOT NULL,
+    members_can_invite INTEGER NOT NULL DEFAULT 0
   );
   CREATE TABLE IF NOT EXISTS group_members (
     group_id TEXT NOT NULL REFERENCES groups(id), user_id TEXT NOT NULL REFERENCES users(id),
@@ -78,10 +79,17 @@ async function dropColumnIfExists(db: AppDatabase, table: string, column: string
 }
 
 export async function initializeLocalDatabase(db: AppDatabase) {
-  if (db.kind !== 'sqlite') return;
+  if (db.kind === 'postgres') {
+    await db.exec(`
+      ALTER TABLE public.groups
+      ADD COLUMN IF NOT EXISTS members_can_invite boolean NOT NULL DEFAULT false
+    `);
+    return;
+  }
 
   await db.exec(sqliteSchema);
   await dropColumnIfExists(db, 'users', 'esewa_qr');
+  await ensureColumn(db, 'groups', 'members_can_invite', 'INTEGER NOT NULL DEFAULT 0');
   await ensureColumn(db, 'polls', 'poll_type', "TEXT NOT NULL DEFAULT 'yes_no'");
   await ensureColumn(db, 'polls', 'options_json', 'TEXT');
   await ensureColumn(db, 'polls', 'winning_option', 'TEXT');

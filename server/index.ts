@@ -110,6 +110,20 @@ async function areConnected(userOne: string, userTwo: string) {
   ));
 }
 
+async function groupMembership(groupId: string, userId: string, client: AppDatabase = db) {
+  return client.get<any>(
+    `SELECT gm.role,g.name,g.emoji,g.members_can_invite
+     FROM group_members gm JOIN groups g ON g.id=gm.group_id
+     WHERE gm.group_id=? AND gm.user_id=?`,
+    [groupId, userId],
+  );
+}
+
+async function groupAdmin(groupId: string, userId: string, client: AppDatabase = db) {
+  const membership = await groupMembership(groupId, userId, client);
+  return membership?.role === 'admin' ? membership : undefined;
+}
+
 async function connectGroupMembers(client: AppDatabase = db) {
   const pairs = await client.all<any>(`SELECT DISTINCT a.user_id first_id, b.user_id second_id
     FROM group_members a
@@ -374,6 +388,15 @@ async function getBootstrap(userId: string) {
       FROM users u JOIN group_members gm ON gm.user_id = u.id
       WHERE gm.group_id = ? ORDER BY u.name`, [group.id]))
       .map((row) => ({ ...publicUser(row), role: row.role }));
+    const pendingInvites = (await db.all<any>(`SELECT gi.id invite_id,gi.created_at,u.*
+      FROM group_invites gi JOIN users u ON u.id=gi.invitee_id
+      WHERE gi.group_id=? AND gi.status='pending'
+      ORDER BY gi.created_at DESC`, [group.id]))
+      .map((row) => ({
+        inviteId: row.invite_id,
+        ...publicUser(row),
+        createdAt: asIso(row.created_at),
+      }));
 
     const pollRows = await db.all<any>(`SELECT p.*, u.name creator_name
       FROM polls p JOIN users u ON u.id = p.creator_id
@@ -438,7 +461,10 @@ async function getBootstrap(userId: string) {
       emoji: group.emoji,
       accent: group.accent,
       role: group.role,
+      membersCanInvite: Boolean(group.members_can_invite),
+      canInviteMembers: group.role === 'admin' || Boolean(group.members_can_invite),
       members,
+      pendingInvites,
       polls,
       messages,
     });
@@ -846,6 +872,267 @@ app.post('/api/groups', auth, async (req: AuthedRequest, res) => {
     }
   });
   res.status(201).json(await getBootstrap(req.userId!));
+});
+
+app.post('/api/groups/:id/invites', auth, async (req: AuthedRequest, res) => {
+  const groupId = String(req.params.id);
+  const membership = await groupMembership(groupId, req.userId!);
+  if (!membership) {
+    res.status(403).json({ error: 'Only group members can invite people.' });
+    return;
+  }
+  if (membership.role !== 'admin' && !Boolean(membership.members_can_invite)) {
+    res.status(403).json({ error: 'An admin has not enabled member invitations.' });
+    return;
+  }
+
+  const rawIds: string[] = Array.isArray(req.body?.inviteeIds) ? req.body.inviteeIds.map(String) : [];
+  if (rawIds.length > 25) {
+    res.status(400).json({ error: 'Invite up to 25 people at a time.' });
+    return;
+  }
+  const candidateIds = new Set<string>(rawIds.filter(Boolean));
+  const credentialId = String(req.body?.credentialId || '').trim();
+  if (credentialId) {
+    const invitedUser = await db.get<{ id: string }>(
+      'SELECT id FROM users WHERE upper(credential_id)=upper(?)',
+      [credentialId],
+    );
+    if (!invitedUser) {
+      res.status(404).json({ error: 'No user was found with that ID.' });
+      return;
+    }
+    candidateIds.add(invitedUser.id);
+  }
+  if (candidateIds.size === 0) {
+    res.status(400).json({ error: 'Choose at least one person to invite.' });
+    return;
+  }
+
+  const inviter = await db.get<any>('SELECT name FROM users WHERE id=?', [req.userId!]);
+  let created = 0;
+  await db.transaction(async (tx) => {
+    for (const inviteeId of candidateIds) {
+      if (inviteeId === req.userId!) continue;
+      const user = await tx.get<{ id: string }>('SELECT id FROM users WHERE id=?', [inviteeId]);
+      if (!user) continue;
+      const member = await tx.get(
+        'SELECT 1 FROM group_members WHERE group_id=? AND user_id=?',
+        [groupId, inviteeId],
+      );
+      const pending = await tx.get(
+        "SELECT 1 FROM group_invites WHERE group_id=? AND invitee_id=? AND status='pending'",
+        [groupId, inviteeId],
+      );
+      if (member || pending) continue;
+      const inviteId = randomUUID();
+      await tx.run(
+        'INSERT INTO group_invites (id,group_id,inviter_id,invitee_id,status,created_at) VALUES (?,?,?,?,?,?)',
+        [inviteId, groupId, req.userId!, inviteeId, 'pending', new Date().toISOString()],
+      );
+      await addNotification(
+        inviteeId,
+        'group_invite',
+        `Group invitation · ${membership.name}`,
+        `${inviter?.name || 'A group member'} invited you to join.`,
+        inviteId,
+        null,
+        tx,
+      );
+      created += 1;
+    }
+  });
+  if (created === 0) {
+    res.status(409).json({ error: 'Everyone selected is already a member or has a pending invitation.' });
+    return;
+  }
+  res.status(201).json(await getBootstrap(req.userId!));
+});
+
+app.post('/api/groups/:id/settings', auth, async (req: AuthedRequest, res) => {
+  const groupId = String(req.params.id);
+  if (!await groupAdmin(groupId, req.userId!)) {
+    res.status(403).json({ error: 'Only a group admin can change group settings.' });
+    return;
+  }
+  if (typeof req.body?.membersCanInvite !== 'boolean') {
+    res.status(400).json({ error: 'Choose whether members can invite others.' });
+    return;
+  }
+  const enabled = req.body.membersCanInvite as boolean;
+  await db.run(
+    'UPDATE groups SET members_can_invite=? WHERE id=?',
+    [db.kind === 'postgres' ? enabled : enabled ? 1 : 0, groupId],
+  );
+  res.json(await getBootstrap(req.userId!));
+});
+
+app.post('/api/groups/:id/members/:userId/role', auth, async (req: AuthedRequest, res) => {
+  const groupId = String(req.params.id);
+  const targetUserId = String(req.params.userId);
+  const admin = await groupAdmin(groupId, req.userId!);
+  if (!admin) {
+    res.status(403).json({ error: 'Only a group admin can change member roles.' });
+    return;
+  }
+  const role = String(req.body?.role || '');
+  if (role !== 'admin' && role !== 'member') {
+    res.status(400).json({ error: 'Choose Admin or Member.' });
+    return;
+  }
+  if (targetUserId === req.userId!) {
+    res.status(400).json({ error: 'You cannot change your own admin role.' });
+    return;
+  }
+  const target = await db.get<any>(
+    `SELECT gm.role,u.name FROM group_members gm JOIN users u ON u.id=gm.user_id
+     WHERE gm.group_id=? AND gm.user_id=?`,
+    [groupId, targetUserId],
+  );
+  if (!target) {
+    res.status(404).json({ error: 'That person is not a group member.' });
+    return;
+  }
+  if (target.role === role) {
+    res.json(await getBootstrap(req.userId!));
+    return;
+  }
+  if (target.role === 'admin' && role === 'member') {
+    const count = await db.get<{ count: number }>(
+      "SELECT COUNT(*) count FROM group_members WHERE group_id=? AND role='admin'",
+      [groupId],
+    );
+    if (Number(count?.count || 0) <= 1) {
+      res.status(409).json({ error: 'Every group must keep at least one admin.' });
+      return;
+    }
+  }
+  await db.run(
+    'UPDATE group_members SET role=? WHERE group_id=? AND user_id=?',
+    [role, groupId, targetUserId],
+  );
+  await addNotification(
+    targetUserId,
+    role === 'admin' ? 'group_promoted' : 'group_demoted',
+    role === 'admin' ? `You are now an admin · ${admin.name}` : `Role updated · ${admin.name}`,
+    role === 'admin'
+      ? 'You can now manage members, invitations, settings, and polls.'
+      : 'Your role in this group is now Member.',
+    `${groupId}:${role}:${randomUUID()}`,
+  );
+  res.json(await getBootstrap(req.userId!));
+});
+
+app.delete('/api/groups/:id/members/:userId', auth, async (req: AuthedRequest, res) => {
+  const groupId = String(req.params.id);
+  const targetUserId = String(req.params.userId);
+  const admin = await groupAdmin(groupId, req.userId!);
+  if (!admin) {
+    res.status(403).json({ error: 'Only a group admin can remove members.' });
+    return;
+  }
+  if (targetUserId === req.userId!) {
+    res.status(400).json({ error: 'You cannot remove yourself from the group.' });
+    return;
+  }
+  const target = await db.get<any>(
+    `SELECT gm.role,u.name FROM group_members gm JOIN users u ON u.id=gm.user_id
+     WHERE gm.group_id=? AND gm.user_id=?`,
+    [groupId, targetUserId],
+  );
+  if (!target) {
+    res.status(404).json({ error: 'That person is not a group member.' });
+    return;
+  }
+  if (target.role === 'admin') {
+    const count = await db.get<{ count: number }>(
+      "SELECT COUNT(*) count FROM group_members WHERE group_id=? AND role='admin'",
+      [groupId],
+    );
+    if (Number(count?.count || 0) <= 1) {
+      res.status(409).json({ error: 'Promote another member before removing the last admin.' });
+      return;
+    }
+  }
+  const actor = await db.get<any>('SELECT name FROM users WHERE id=?', [req.userId!]);
+  await db.transaction(async (tx) => {
+    await tx.run(
+      `DELETE FROM app_notifications WHERE user_id=? AND entity_id IN
+       (SELECT id FROM polls WHERE group_id=?)`,
+      [targetUserId, groupId],
+    );
+    await tx.run(
+      `DELETE FROM votes WHERE user_id=? AND poll_id IN
+       (SELECT id FROM polls WHERE group_id=? AND status='open')`,
+      [targetUserId, groupId],
+    );
+    await tx.run(
+      'DELETE FROM group_members WHERE group_id=? AND user_id=?',
+      [groupId, targetUserId],
+    );
+    await addNotification(
+      targetUserId,
+      'group_removed',
+      `Removed from ${admin.name}`,
+      `${actor?.name || 'A group admin'} removed you from the group.`,
+      groupId,
+      null,
+      tx,
+    );
+  });
+  res.json(await getBootstrap(req.userId!));
+});
+
+app.delete('/api/groups/:id', auth, async (req: AuthedRequest, res) => {
+  const groupId = String(req.params.id);
+  const admin = await groupAdmin(groupId, req.userId!);
+  if (!admin) {
+    res.status(403).json({ error: 'Only a group admin can delete this group.' });
+    return;
+  }
+  const members = await db.all<{ user_id: string }>(
+    'SELECT user_id FROM group_members WHERE group_id=?',
+    [groupId],
+  );
+  const actor = await db.get<any>('SELECT name FROM users WHERE id=?', [req.userId!]);
+  await db.transaction(async (tx) => {
+    await tx.run(
+      `DELETE FROM app_notifications WHERE entity_id IN
+       (SELECT id FROM polls WHERE group_id=?)`,
+      [groupId],
+    );
+    await tx.run(
+      `DELETE FROM app_notifications WHERE entity_id IN
+       (SELECT id FROM group_invites WHERE group_id=?)`,
+      [groupId],
+    );
+    await tx.run(
+      "DELETE FROM app_notifications WHERE entity_id=? AND type IN ('group_promoted','group_demoted','group_removed')",
+      [groupId],
+    );
+    await tx.run(
+      'DELETE FROM votes WHERE poll_id IN (SELECT id FROM polls WHERE group_id=?)',
+      [groupId],
+    );
+    await tx.run('DELETE FROM polls WHERE group_id=?', [groupId]);
+    await tx.run('DELETE FROM messages WHERE group_id=?', [groupId]);
+    await tx.run('DELETE FROM group_invites WHERE group_id=?', [groupId]);
+    await tx.run('DELETE FROM group_members WHERE group_id=?', [groupId]);
+    await tx.run('DELETE FROM groups WHERE id=?', [groupId]);
+    for (const member of members) {
+      if (member.user_id === req.userId!) continue;
+      await addNotification(
+        member.user_id,
+        'group_deleted',
+        `Group deleted · ${admin.name}`,
+        `${actor?.name || 'A group admin'} deleted this group.`,
+        groupId,
+        null,
+        tx,
+      );
+    }
+  });
+  res.json(await getBootstrap(req.userId!));
 });
 
 app.post('/api/group-invites/:id/respond', auth, async (req: AuthedRequest, res) => {

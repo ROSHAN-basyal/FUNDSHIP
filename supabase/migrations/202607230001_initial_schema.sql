@@ -23,7 +23,8 @@ create table if not exists public.groups (
   id text primary key,
   name text not null,
   emoji text not null,
-  accent text not null
+  accent text not null,
+  members_can_invite boolean not null default false
 );
 
 create table if not exists public.group_members (

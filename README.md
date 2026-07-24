@@ -88,7 +88,7 @@ The phone must have Developer options and USB debugging enabled, and its RSA aut
 
 The production code path is ready, but no credentials are committed. SQLite remains the automatic fallback only when `DATABASE_URL` is absent in local development. Production startup fails safely if that variable is missing.
 
-1. Create a Supabase project and run [`supabase/migrations/202607230001_initial_schema.sql`](supabase/migrations/202607230001_initial_schema.sql) in its SQL editor. Run [`supabase/seed.sql`](supabase/seed.sql) only if the demo accounts are wanted.
+1. Create a Supabase project and run [`supabase/migrations/202607230001_initial_schema.sql`](supabase/migrations/202607230001_initial_schema.sql) in its SQL editor. Existing deployments should then apply later migration files in filename order, including [`supabase/migrations/202607240001_group_management.sql`](supabase/migrations/202607240001_group_management.sql). Run [`supabase/seed.sql`](supabase/seed.sql) only if the demo accounts are wanted.
 2. In Supabase, copy the **transaction pooler** connection string on port `6543`. Use that value for `DATABASE_URL`; the server disables prepared statements because transaction mode does not support them.
 3. Import the GitHub repository into Vercel. Set `DATABASE_URL`, `DATABASE_SSL=require`, `DATABASE_POOL_SIZE=1`, and a long random `CRON_SECRET` in the Vercel project environment.
 4. Deploy and verify `https://YOUR-VERCEL-DOMAIN/api/health`. The response should report `"database": "postgres"`.
