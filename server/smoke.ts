@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 const temp=mkdtempSync(join(tmpdir(),'sajilo-smoke-'));const database=join(temp,'smoke.db');const port=8791;const root=`http://127.0.0.1:${port}/api`;
-const server=spawn(join(process.cwd(),'node_modules/.bin/tsx'),['server/index.ts'],{cwd:process.cwd(),env:{...process.env,PORT:String(port),SAJILO_DB_PATH:database},stdio:['ignore','pipe','pipe']});
+const server=spawn(join(process.cwd(),'node_modules/.bin/tsx'),['server/index.ts'],{cwd:process.cwd(),env:{...process.env,PORT:String(port),SAJILO_DB_PATH:database,SAJILO_SEED_DEMO_GROUPS:'true'},stdio:['ignore','pipe','pipe']});
 let errors='';server.stderr.on('data',value=>{errors+=String(value)});
 function assert(value:unknown,message:string):asserts value{if(!value)throw new Error(message)}
 async function waitForServer(){for(let i=0;i<60;i++){try{if((await fetch(`${root}/health`)).ok)return}catch{}await new Promise(resolve=>setTimeout(resolve,100))}throw new Error(`API did not start: ${errors}`)}

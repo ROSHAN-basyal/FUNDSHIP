@@ -319,8 +319,45 @@ async function runMaintenance() {
   return maintenanceInFlight;
 }
 
+let productionDemoCleanup: Promise<void> | undefined;
+let groupConnectionSync: Promise<void> | undefined;
+
+async function removeProductionDemoGroups() {
+  if (db.kind !== 'postgres') return;
+  if (!productionDemoCleanup) {
+    productionDemoCleanup = db.transaction(async (tx) => {
+      await tx.run(
+        `DELETE FROM groups WHERE
+          (id=? AND name=?) OR (id=? AND name=?) OR (id=? AND name=?)`,
+        ['g1', 'Weekend Crew', 'g2', 'Office Lunch', 'g3', 'Cycling Circle'],
+      );
+      await tx.run(`DELETE FROM app_notifications
+        WHERE (
+          type IN ('poll_open','poll_approval','poll_result','event_due')
+          AND NOT EXISTS (SELECT 1 FROM polls WHERE polls.id=app_notifications.entity_id)
+        ) OR (
+          type='group_invite'
+          AND NOT EXISTS (SELECT 1 FROM group_invites WHERE group_invites.id=app_notifications.entity_id)
+        )`);
+    });
+  }
+  await productionDemoCleanup;
+}
+
+async function ensureGroupConnections() {
+  if (!groupConnectionSync) {
+    groupConnectionSync = connectGroupMembers().catch((error) => {
+      groupConnectionSync = undefined;
+      throw error;
+    });
+  }
+  await groupConnectionSync;
+}
+
 async function getBootstrap(userId: string) {
-  await runMaintenance();
+  await removeProductionDemoGroups();
+  await ensureGroupConnections();
+  await evaluatePolls();
   const user = await db.get<any>('SELECT * FROM users WHERE id = ?', [userId]);
   const people = (await db.all<any>(`SELECT DISTINCT u.*
     FROM users u JOIN connections c
@@ -549,7 +586,6 @@ let initialization: Promise<void> | undefined;
 function ensureReady() {
   if (!initialization) {
     initialization = initializeLocalDatabase(db)
-      .then(runMaintenance)
       .catch((error) => {
         initialization = undefined;
         throw error;
@@ -834,6 +870,7 @@ app.post('/api/group-invites/:id/respond', auth, async (req: AuthedRequest, res)
          VALUES (?,?,'member',99) ON CONFLICT(group_id,user_id) DO NOTHING`,
         [invite.group_id, req.userId!],
       );
+      await connectGroupMembers(tx);
     }
     await tx.run(
       "UPDATE app_notifications SET cleared_at=? WHERE user_id=? AND type='group_invite' AND entity_id=?",

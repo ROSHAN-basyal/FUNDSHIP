@@ -8,24 +8,3 @@ values
   ('u4', 'KS-004', 'Kiran Shrestha', '9800000004', 'a68349561396ec264a350847024a4521d00beaa3358660c2709a80f31c7acdd0', '43bcfd67415041651733e9f16b4126ed6b8b30b0c9e77acb9da38a542ff0eaad', false, '#4c9686'),
   ('u5', 'AP-005', 'Anish Pandey', '9800000005', 'a68349561396ec264a350847024a4521d00beaa3358660c2709a80f31c7acdd0', '6a95bbab63d587b596398c4bd7e91a132f24032d2007d107e5ea71967724b092', false, '#a779b8')
 on conflict (id) do nothing;
-
-insert into public.groups (id, name, emoji, accent)
-values
-  ('g1', 'Weekend Crew', '⛰️', '#dc704b'),
-  ('g2', 'Office Lunch', '🥟', '#568a78'),
-  ('g3', 'Cycling Circle', '🚲', '#5d77a6')
-on conflict (id) do nothing;
-
-insert into public.group_members (group_id, user_id, role, position)
-values
-  ('g1', 'u1', 'admin', 0),
-  ('g1', 'u2', 'member', 0),
-  ('g1', 'u3', 'member', 0),
-  ('g1', 'u4', 'member', 0),
-  ('g1', 'u5', 'member', 0),
-  ('g2', 'u1', 'member', 1),
-  ('g2', 'u2', 'admin', 1),
-  ('g2', 'u3', 'member', 1),
-  ('g2', 'u4', 'member', 1),
-  ('g3', 'u5', 'admin', 0)
-on conflict (group_id, user_id) do nothing;

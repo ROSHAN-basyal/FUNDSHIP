@@ -86,6 +86,7 @@ export async function initializeLocalDatabase(db: AppDatabase) {
   await ensureColumn(db, 'polls', 'options_json', 'TEXT');
   await ensureColumn(db, 'polls', 'winning_option', 'TEXT');
   await ensureColumn(db, 'polls', 'result_notified_at', 'TEXT');
+  const includeDemoGroups = process.env.SAJILO_SEED_DEMO_GROUPS === 'true';
 
   const userCount = await db.get<{ count: number }>('SELECT COUNT(*) count FROM users');
   if (Number(userCount?.count || 0) > 0) return;
@@ -99,6 +100,8 @@ export async function initializeLocalDatabase(db: AppDatabase) {
     await tx.run(addUser, ['u3', 'SA-003', 'Sujata Aryal', '9800000003', hash('welcome123'), hash('3690'), 0, '#b76475']);
     await tx.run(addUser, ['u4', 'KS-004', 'Kiran Shrestha', '9800000004', hash('welcome123'), hash('4560'), 0, '#4c9686']);
     await tx.run(addUser, ['u5', 'AP-005', 'Anish Pandey', '9800000005', hash('welcome123'), hash('7890'), 0, '#a779b8']);
+
+    if (!includeDemoGroups) return;
 
     const addGroup = 'INSERT INTO groups (id, name, emoji, accent) VALUES (?, ?, ?, ?)';
     await tx.run(addGroup, ['g1', 'Weekend Crew', '⛰️', '#dc704b']);
