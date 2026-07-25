@@ -6,6 +6,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.content.res.ColorStateList;
+import android.graphics.Rect;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -102,7 +103,36 @@ final class NativeUi {
         EditText input=new EditText(context);input.setHint(hint);input.setTextColor(INK);input.setHintTextColor(Color.rgb(146,154,150));input.setTextSize(14);input.setSingleLine(true);
         input.setPadding(dp(context,14),0,dp(context,14),0);input.setBackground(outlined(context,Color.WHITE,LINE,12));
         input.setInputType(number?InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL:InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        keepVisibleWithKeyboard(input);
         return input;
+    }
+
+    /**
+     * Keeps a field visible after the IME has resized the window. Repeating the
+     * request matters because focus is delivered before the keyboard animation
+     * finishes on many Android versions.
+     */
+    static void keepVisibleWithKeyboard(EditText input) {
+        input.setOnFocusChangeListener((view, focused) -> {
+            if (focused) revealFocusedField(view);
+        });
+    }
+
+    static void revealCurrentField(View root) {
+        View focused=root==null?null:root.findFocus();
+        if(focused instanceof EditText)revealFocusedField(focused);
+    }
+
+    static void revealFocusedField(View field) {
+        Runnable reveal=()->{
+            if(!field.isAttachedToWindow()||!field.hasFocus())return;
+            int breathingRoom=dp(field.getContext(),88);
+            Rect area=new Rect(0,-dp(field.getContext(),8),Math.max(1,field.getWidth()),field.getHeight()+breathingRoom);
+            field.requestRectangleOnScreen(area,true);
+        };
+        field.post(reveal);
+        field.postDelayed(reveal,180);
+        field.postDelayed(reveal,360);
     }
 
     static TextView fieldLabel(Context context,String value){

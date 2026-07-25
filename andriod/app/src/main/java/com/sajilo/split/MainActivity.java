@@ -20,6 +20,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.CheckBox;
 import android.widget.FrameLayout;
@@ -84,10 +85,10 @@ public class MainActivity extends AppCompatActivity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
-        Window window=getWindow();WindowCompat.setDecorFitsSystemWindows(window,false);window.setStatusBarColor(Color.TRANSPARENT);window.setNavigationBarColor(Color.TRANSPARENT);
+        Window window=getWindow();WindowCompat.setDecorFitsSystemWindows(window,false);window.setStatusBarColor(Color.TRANSPARENT);window.setNavigationBarColor(Color.TRANSPARENT);window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE|WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
         WindowInsetsControllerCompat bars=WindowCompat.getInsetsController(window,window.getDecorView());bars.setAppearanceLightStatusBars(true);bars.setAppearanceLightNavigationBars(true);
         setContentView(R.layout.activity_main);root=findViewById(R.id.nativeRoot);root.setBackgroundColor(NativeUi.BG);
-        ViewCompat.setOnApplyWindowInsetsListener(root,(view,insets)->{Insets system=insets.getInsets(WindowInsetsCompat.Type.systemBars());view.setPadding(0,system.top,0,system.bottom);return insets;});
+        ViewCompat.setOnApplyWindowInsetsListener(root,(view,insets)->{Insets system=insets.getInsets(WindowInsetsCompat.Type.systemBars());Insets ime=insets.getInsets(WindowInsetsCompat.Type.ime());int bottom=Math.max(system.bottom,ime.bottom);view.setPadding(0,system.top,0,bottom);if(insets.isVisible(WindowInsetsCompat.Type.ime()))view.post(()->NativeUi.revealCurrentField(view));return insets;});
         ViewCompat.requestApplyInsets(root);sessions=new SecureSessionStore(this);snapshots=new SnapshotStore(this);
         PollNotificationManager.createChannel(this);PaymentNotificationManager.createChannel(this);
         requestNotificationPermission();if(sessions.exists())restoreStoredSession();else showLogin();
@@ -220,7 +221,7 @@ public class MainActivity extends AppCompatActivity {
         TextView note=NativeUi.text(this,"Your account ID is issued by the FUNDSHIP administrator.",10,NativeUi.MUTED,false);note.setGravity(Gravity.CENTER);content.addView(note,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,42)),0,18,0,0));page.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));root.addView(page,new FrameLayout.LayoutParams(-1,-1));
     }
 
-    private EditText input(String hint){EditText input=new EditText(this);input.setHint(hint);input.setTextColor(NativeUi.INK);input.setHintTextColor(Color.rgb(145,153,149));input.setTextSize(15);input.setSingleLine(true);input.setPadding(NativeUi.dp(this,14),0,NativeUi.dp(this,14),0);input.setBackground(NativeUi.outlined(this,Color.WHITE,NativeUi.LINE,13));return input;}
+    private EditText input(String hint){EditText input=new EditText(this);input.setHint(hint);input.setTextColor(NativeUi.INK);input.setHintTextColor(Color.rgb(145,153,149));input.setTextSize(15);input.setSingleLine(true);input.setPadding(NativeUi.dp(this,14),0,NativeUi.dp(this,14),0);input.setBackground(NativeUi.outlined(this,Color.WHITE,NativeUi.LINE,13));NativeUi.keepVisibleWithKeyboard(input);return input;}
     private void setBusy(TextView button,boolean busy,String text){button.setEnabled(!busy);button.setAlpha(busy?.65f:1f);button.setText(text);}
 
     private void restoreStoredSession(){try{api.setToken(sessions.load());JSONObject cached=snapshots.load();JSONObject cachedUser=cached==null?null:cached.optJSONObject("user");if(cachedUser!=null&&sessions.credentialId().equalsIgnoreCase(cachedUser.optString("credentialId"))){data=cached;buildShell();ensureFullScreenPollAccess();deliverNotifications();syncNow(true);}else loadBootstrap(true);}catch(Exception error){api.clearToken();sessions.clear();snapshots.clear();showLogin();toast("Saved sign-in could not be restored. Use your password.");}}

@@ -13,6 +13,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+
 import java.util.Locale;
 
 /** A consistent, native bottom sheet used by the app's larger workflows. */
@@ -97,6 +100,7 @@ final class FundshipSheet {
         ScrollView scroll = new ScrollView(context);
         scroll.setFillViewport(false);
         scroll.setClipToPadding(false);
+        scroll.setSmoothScrollingEnabled(true);
         scroll.setPadding(dp(18), dp(17), dp(18), dp(12));
         scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
         panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -122,11 +126,21 @@ final class FundshipSheet {
             window.setGravity(Gravity.BOTTOM);
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             window.setDimAmount(.48f);
-            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+            window.setSoftInputMode(
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                            | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
+            );
             int screenHeight = context.getResources().getDisplayMetrics().heightPixels;
             int height = Math.min(screenHeight - dp(18), Math.round(screenHeight * Math.max(60, Math.min(96, heightPercent)) / 100f));
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, height);
             window.setNavigationBarColor(NativeUi.PAPER);
+            ViewCompat.setOnApplyWindowInsetsListener(panel, (view, insets) -> {
+                if (insets.isVisible(WindowInsetsCompat.Type.ime())) {
+                    view.post(() -> NativeUi.revealCurrentField(view));
+                }
+                return insets;
+            });
+            ViewCompat.requestApplyInsets(panel);
         }
     }
 

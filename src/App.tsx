@@ -13,6 +13,22 @@ import { applyPollVote, cachedBootstrap, getBootstrap, getSync, mutate, remember
 import { isNativeAndroid, onNativeAppResume, PollNotifications, prepareNativeNotifications, requestNativeNotificationPermission, showNativePayment, showNativePoll } from './lib/native';
 import type { Bootstrap } from './types';
 
+function useKeyboardAwareFocus(){
+  useEffect(()=>{
+    let timer=0;
+    const reveal=()=>{
+      if(!matchMedia('(max-width: 900px)').matches)return;
+      const field=document.activeElement;
+      if(!(field instanceof HTMLInputElement||field instanceof HTMLTextAreaElement||field instanceof HTMLSelectElement))return;
+      field.scrollIntoView({block:'center',inline:'nearest',behavior:'smooth'});
+    };
+    const schedule=()=>{window.clearTimeout(timer);timer=window.setTimeout(reveal,180)};
+    document.addEventListener('focusin',schedule);
+    window.visualViewport?.addEventListener('resize',schedule);
+    return()=>{window.clearTimeout(timer);document.removeEventListener('focusin',schedule);window.visualViewport?.removeEventListener('resize',schedule)};
+  },[]);
+}
+
 function AppShell({data,onData}:{data:Bootstrap;onData:(d:Bootstrap)=>void}){
   const [page,setPage]=useState(()=>new URLSearchParams(location.search).get('page')||'home');const[profileOpen,setProfileOpen]=useState(false);const[groupOpen,setGroupOpen]=useState(false);const[notificationOpen,setNotificationOpen]=useState(false);const[incomingAlert,setIncomingAlert]=useState<{group:Bootstrap['groups'][number];poll:Bootstrap['groups'][number]['polls'][number]}|null>(null);const[toast,setToast]=useState('');
   const [slideDirection,setSlideDirection]=useState<'left'|'right'>('left');
@@ -58,6 +74,7 @@ function AppShell({data,onData}:{data:Bootstrap;onData:(d:Bootstrap)=>void}){
 }
 
 export default function App(){
+  useKeyboardAwareFocus();
   const initial=useMemo(()=>session.get()?cachedBootstrap():null,[]);const [data,setData]=useState<Bootstrap|null>(initial);const[loading,setLoading]=useState(Boolean(session.get()&&!initial));const[error,setError]=useState('');
   async function load(){setLoading(true);setError('');try{setData(await getBootstrap())}catch(err){session.clear();setError(err instanceof Error?err.message:'Could not load your account.')}finally{setLoading(false)}}
   useEffect(()=>{if(!session.get())return;if(!initial){void load();return}void getSync(initial.revision||0).then(result=>{if(result.changed)setData(rememberBootstrap(result.snapshot))}).catch(()=>{/* cached state stays usable offline */})},[]);
