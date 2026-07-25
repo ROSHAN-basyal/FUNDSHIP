@@ -151,6 +151,18 @@ function pollOptions(row: any): PollOption[] {
   }
 }
 
+function splitBreakdown(row: any) {
+  const value = row?.split_breakdown_json;
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 const publicUser = (
   row: any,
   details: 'public' | 'payment' | 'account' = 'public',
@@ -592,8 +604,12 @@ async function getBootstrap(userId: string, knownRevision?: number) {
     splitId: item.split_id,
     splitCount: item.split_count === null ? null : Number(item.split_count),
     totalAmount: item.total_amount === null ? null : Number(item.total_amount),
+    splitMode: item.split_mode,
+    splitBreakdown: splitBreakdown(item),
     status: item.status,
     createdAt: asIso(item.created_at),
+    verifiedAt: asIso(item.verified_at),
+    discardedAt: asIso(item.discarded_at),
   });
 
   const incoming = rawPayments
@@ -607,12 +623,15 @@ async function getBootstrap(userId: string, knownRevision?: number) {
   const outgoing = [...outgoingMap.values()];
 
   const balances = new Map<string, { personId: string; name: string; avatarColor: string; amount: number }>();
-  for (const item of rawPayments.filter((row) => row.status === 'verified')) {
+  for (const item of rawPayments.filter((row) =>
+    ['verified', 'discarded'].includes(row.status) && row.payer_id !== row.payee_id)) {
     if (item.payer_id !== userId && item.payee_id !== userId) continue;
     const otherId = item.payer_id === userId ? item.payee_id : item.payer_id;
     const otherName = item.payer_id === userId ? item.payee_name : item.payer_name;
     const otherColor = item.payer_id === userId ? item.payee_color : item.payer_color;
-    const delta = item.payee_id === userId ? Number(item.amount) : -Number(item.amount);
+    const delta = item.status === 'verified'
+      ? (item.payee_id === userId ? Number(item.amount) : -Number(item.amount))
+      : 0;
     const current = balances.get(otherId) || {
       personId: otherId,
       name: otherName,
@@ -623,7 +642,6 @@ async function getBootstrap(userId: string, knownRevision?: number) {
     balances.set(otherId, current);
   }
   const ledger = [...balances.values()]
-    .filter((item) => item.amount !== 0)
     .sort((first, second) => Math.abs(second.amount) - Math.abs(first.amount));
   const owedToYou = ledger.reduce((sum, item) => sum + Math.max(0, item.amount), 0);
   const youOwe = ledger.reduce((sum, item) => sum + Math.max(0, -item.amount), 0);
@@ -638,7 +656,8 @@ async function getBootstrap(userId: string, knownRevision?: number) {
       createdAt: asIso(invite.created_at),
     }));
   const transactions = rawPayments
-    .filter((item) => item.status === 'verified' && (item.payer_id === userId || item.payee_id === userId))
+    .filter((item) => ['verified', 'discarded'].includes(item.status)
+      && (item.payer_id === userId || item.payee_id === userId))
     .map(payment);
   const connections = connectionRows.map((item) => ({
       id: item.id,
@@ -677,7 +696,12 @@ async function getBootstrap(userId: string, knownRevision?: number) {
     people,
     groups,
     groupInvites,
-    payments: { incoming, outgoing },
+    payments: {
+      incoming,
+      outgoing,
+      hasUnseenIncoming: rawPayments.some((item) =>
+        item.payer_id === userId && item.status === 'pending' && !item.payer_seen_at),
+    },
     transactions,
     ledger,
     totals: { owedToYou, youOwe },
@@ -1332,7 +1356,7 @@ app.post('/api/group-invites/:id/respond', auth, async (req: AuthedRequest, res)
 });
 
 app.post('/api/payments/lend', auth, async (req: AuthedRequest, res) => {
-  const { borrowerId, amount, purpose, note } = req.body ?? {};
+  const { borrowerId, amount, purpose } = req.body ?? {};
   if (!borrowerId || Number(amount) <= 0 || !String(purpose || '').trim()) {
     res.status(400).json({ error: 'Person, amount, and purpose are required.' });
     return;
@@ -1353,7 +1377,7 @@ app.post('/api/payments/lend', auth, async (req: AuthedRequest, res) => {
       req.userId!,
       Math.round(Number(amount)),
       String(purpose).trim(),
-      note || null,
+      null,
       new Date().toISOString(),
     ],
   );
@@ -1365,13 +1389,17 @@ app.post('/api/payments/lend', auth, async (req: AuthedRequest, res) => {
     `NPR ${Math.round(Number(amount))} · ${String(purpose).trim()}`,
     requestId,
   );
-  await touchUsers([req.userId!]);
+  await touchUsers([req.userId!, String(borrowerId)]);
   res.status(201).json(await getBootstrap(req.userId!));
 });
 
 app.post('/api/payments/split', auth, async (req: AuthedRequest, res) => {
   const { purpose, totalAmount, participants, mode } = req.body ?? {};
   const entries = Array.isArray(participants) ? participants : [];
+  if (mode !== 'equal' && mode !== 'manual') {
+    res.status(400).json({ error: 'Choose equal or manual split.' });
+    return;
+  }
   if (!String(purpose || '').trim() || Number(totalAmount) <= 0 || entries.length < 2) {
     res.status(400).json({ error: 'Add a purpose, amount, and at least two participants.' });
     return;
@@ -1404,37 +1432,54 @@ app.post('/api/payments/split', auth, async (req: AuthedRequest, res) => {
 
   const splitId = randomUUID();
   const equalShare = Math.floor(total / entries.length);
-  const sender = await db.get<any>('SELECT name FROM users WHERE id=?', [req.userId!]);
+  const participantPlaceholders = participantIds.map(() => '?').join(',');
+  const participantRows = await db.all<{ id: string; name: string }>(
+    `SELECT id,name FROM users WHERE id IN (${participantPlaceholders})`,
+    participantIds,
+  );
+  const participantNames = new Map(participantRows.map((item) => [item.id, item.name]));
+  const breakdown = entries.map((entry: any, index: number) => ({
+    userId: String(entry.userId),
+    name: participantNames.get(String(entry.userId)) || 'Member',
+    amount: mode === 'manual'
+      ? Math.round(Number(entry.amount || 0))
+      : equalShare + (index === 0 ? total - equalShare * entries.length : 0),
+    initiator: String(entry.userId) === req.userId!,
+  }));
+  const breakdownJson = JSON.stringify(breakdown);
+  const senderName = participantNames.get(req.userId!) || 'A connection';
   await db.transaction(async (tx) => {
-    for (const [index, entry] of entries.entries()) {
-      const amount = mode === 'manual'
-        ? Math.round(Number(entry.amount || 0))
-        : equalShare + (index === 0 ? total - equalShare * entries.length : 0);
+    for (const share of breakdown) {
+      // The initiator participates in the expense calculation, but their own
+      // share is not a debt and therefore must never become a ledger row.
+      if (share.initiator) continue;
       const requestId = randomUUID();
       await tx.run(
         `INSERT INTO payment_requests
           (id, initiator_id, payer_id, payee_id, amount, purpose, note, kind,
-           split_id, split_count, total_amount, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'split', ?, ?, ?, 'pending', ?)`,
+           split_id, split_count, total_amount, split_mode, split_breakdown_json,
+           status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, 'split', ?, ?, ?, ?, ?, 'pending', ?)`,
         [
           requestId,
           req.userId!,
-          entry.userId,
+          share.userId,
           req.userId!,
-          amount,
+          share.amount,
           String(purpose).trim(),
-          entry.note || null,
           splitId,
           entries.length,
           total,
+          mode,
+          breakdownJson,
           new Date().toISOString(),
         ],
       );
       await addNotification(
-        entry.userId,
+        share.userId,
         'payment_request',
-        `Request from ${sender?.name || 'A connection'}`,
-        `NPR ${amount} · ${String(purpose).trim()}`,
+        `Request from ${senderName}`,
+        `NPR ${share.amount} · ${String(purpose).trim()}`,
         requestId,
         null,
         tx,
@@ -1443,6 +1488,16 @@ app.post('/api/payments/split', auth, async (req: AuthedRequest, res) => {
     await touchUsers(participantIds, tx);
   });
   res.status(201).json(await getBootstrap(req.userId!));
+});
+
+app.post('/api/payments/incoming/opened', auth, async (req: AuthedRequest, res) => {
+  await db.run(
+    `UPDATE payment_requests SET payer_seen_at=?
+     WHERE payer_id=? AND status='pending' AND payer_seen_at IS NULL`,
+    [new Date().toISOString(), req.userId!],
+  );
+  await touchUsers([req.userId!]);
+  res.json(await getBootstrap(req.userId!));
 });
 
 app.post('/api/payments/:id/verify', auth, async (req: AuthedRequest, res) => {
@@ -1468,6 +1523,34 @@ app.post('/api/payments/:id/verify', auth, async (req: AuthedRequest, res) => {
     [new Date().toISOString(), req.userId!, paymentId],
   );
   await touchUsers([payment.initiator_id, payment.payer_id, payment.payee_id]);
+  res.json(await getBootstrap(req.userId!));
+});
+
+app.post('/api/payments/:id/discard', auth, async (req: AuthedRequest, res) => {
+  const paymentId = String(req.params.id);
+  const payment = await db.get<any>(
+    "SELECT * FROM payment_requests WHERE id=? AND payer_id=? AND status='pending'",
+    [paymentId, req.userId!],
+  );
+  if (!payment) {
+    res.status(404).json({ error: 'Pending request not found.' });
+    return;
+  }
+  const discardedAt = new Date().toISOString();
+  await db.transaction(async (tx) => {
+    const result = await tx.run(
+      `UPDATE payment_requests
+       SET status='discarded', discarded_at=?, payer_seen_at=?
+       WHERE id=? AND payer_id=? AND status='pending'`,
+      [discardedAt, discardedAt, paymentId, req.userId!],
+    );
+    if (!result.changes) throw new Error('Pending request not found.');
+    await tx.run(
+      "UPDATE app_notifications SET cleared_at=? WHERE user_id=? AND type='payment_request' AND entity_id=?",
+      [discardedAt, req.userId!, paymentId],
+    );
+    await touchUsers([payment.initiator_id, payment.payer_id, payment.payee_id], tx);
+  });
   res.json(await getBootstrap(req.userId!));
 });
 
@@ -1503,12 +1586,32 @@ app.delete('/api/payments/:id', auth, async (req: AuthedRequest, res) => {
     res.status(404).json({ error: 'Request not found.' });
     return;
   }
-  if (row.status !== 'verified') {
-    res.status(409).json({ error: 'Only verified requests can be removed.' });
-    return;
-  }
-  await db.run('DELETE FROM payment_requests WHERE id=?', [paymentId]);
-  await touchUsers([row.initiator_id, row.payer_id, row.payee_id]);
+  const rows = row.split_id
+    ? await db.all<any>(
+      'SELECT * FROM payment_requests WHERE split_id=? AND initiator_id=?',
+      [row.split_id, req.userId!],
+    )
+    : [row];
+  await db.transaction(async (tx) => {
+    for (const item of rows) {
+      await tx.run(
+        "DELETE FROM app_notifications WHERE type='payment_request' AND entity_id=?",
+        [item.id],
+      );
+    }
+    if (row.split_id) {
+      await tx.run(
+        'DELETE FROM payment_requests WHERE split_id=? AND initiator_id=?',
+        [row.split_id, req.userId!],
+      );
+    } else {
+      await tx.run('DELETE FROM payment_requests WHERE id=?', [paymentId]);
+    }
+    await touchUsers(
+      rows.flatMap((item) => [item.initiator_id, item.payer_id, item.payee_id]),
+      tx,
+    );
+  });
   res.json(await getBootstrap(req.userId!));
 });
 

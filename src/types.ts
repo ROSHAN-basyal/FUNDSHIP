@@ -69,8 +69,12 @@ export type Payment = {
   splitId?: string;
   splitCount?: number;
   totalAmount?: number;
-  status: 'pending' | 'verified';
+  splitMode?: 'equal' | 'manual';
+  splitBreakdown?: { userId:string; name:string; amount:number; initiator:boolean }[];
+  status: 'pending' | 'verified' | 'discarded';
   createdAt: string;
+  verifiedAt?: string;
+  discardedAt?: string;
 };
 
 export type LedgerItem = { personId: string; name: string; avatarColor: string; amount: number };
@@ -101,7 +105,7 @@ export type Bootstrap = {
   people: User[];
   groups: Group[];
   groupInvites: { id:string; groupId:string; groupName:string; emoji:string; accent:string; inviterName:string; createdAt:string }[];
-  payments: { incoming: Payment[]; outgoing: Payment[] };
+  payments: { incoming: Payment[]; outgoing: Payment[]; hasUnseenIncoming:boolean };
   transactions: Payment[];
   ledger: LedgerItem[];
   totals: { owedToYou: number; youOwe: number };

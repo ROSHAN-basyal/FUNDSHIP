@@ -27,21 +27,23 @@ export async function applyMigrations(files: string[]) {
     for (const file of files) {
       const absolute = resolve(file);
       const name = basename(file);
-      const applied = await sql<{ name: string }[]>`
-        SELECT name FROM public.fundship_schema_migrations WHERE name=${name}
-      `;
-      if (applied.length > 0) {
-        process.stdout.write(`Already applied ${name}\n`);
-        continue;
-      }
       const migration = await readFile(absolute, 'utf8');
+      let newlyApplied = false;
       await sql.begin(async (transaction) => {
+        // Transaction-scoped locks work through Supabase's transaction pooler
+        // and serialize concurrent Vercel production builds safely.
+        await transaction`SELECT pg_advisory_xact_lock(7246941048262026)`;
+        const applied = await transaction<{ name: string }[]>`
+          SELECT name FROM public.fundship_schema_migrations WHERE name=${name}
+        `;
+        if (applied.length > 0) return;
         await transaction.unsafe(migration);
         await transaction`
           INSERT INTO public.fundship_schema_migrations (name) VALUES (${name})
         `;
+        newlyApplied = true;
       });
-      process.stdout.write(`Applied ${name}\n`);
+      process.stdout.write(`${newlyApplied ? 'Applied' : 'Already applied'} ${name}\n`);
     }
   } finally {
     await sql.end({ timeout: 5 });

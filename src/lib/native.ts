@@ -56,21 +56,9 @@ interface PaymentNotificationsPlugin {
   }): Promise<{ shown: boolean }>;
 }
 
-interface AppNotificationsPlugin {
-  show(options: {
-    notificationId: string;
-    title: string;
-    body: string;
-    type: string;
-    persistentUntil?: string;
-    persistentUntilMs?: number;
-  }): Promise<{ shown:boolean }>;
-}
-
 export const isNativeAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
 export const PollNotifications = registerPlugin<PollNotificationsPlugin>('PollNotifications');
 export const PaymentNotifications = registerPlugin<PaymentNotificationsPlugin>('PaymentNotifications');
-export const AppNotifications = registerPlugin<AppNotificationsPlugin>('AppNotifications');
 export const NativeSecurity = registerPlugin<NativeSecurityPlugin>('NativeSecurity');
 
 export async function prepareNativeNotifications() {
@@ -105,12 +93,6 @@ export async function showNativePoll(group: Group, poll: Poll) {
 export async function showNativePayment(requestId:string,senderName:string,amount:number,purpose:string) {
   if (!isNativeAndroid) return false;
   const result=await PaymentNotifications.showIncoming({requestId,senderName,amount,purpose});
-  return result.shown;
-}
-
-export async function showNativeInboxNotification(item:{id:string;title:string;body:string;type:string;persistentUntil?:string}) {
-  if (!isNativeAndroid) return false;
-  const result=await AppNotifications.show({notificationId:item.id,title:item.title,body:item.body,type:item.type,persistentUntil:item.persistentUntil,persistentUntilMs:item.persistentUntil?new Date(item.persistentUntil).getTime():0});
   return result.shown;
 }
 

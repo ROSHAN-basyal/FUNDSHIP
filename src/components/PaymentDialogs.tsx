@@ -67,10 +67,11 @@ export function PersonPickerModal({people,onClose,onSelect}:{people:User[];onClo
 }
 
 export function TransactionHistoryModal({person,data,onClose}:{person:User;data:Bootstrap;onClose:()=>void}) {
+  const [details,setDetails]=useState<Payment|null>(null);
   const items=data.transactions.filter(item=>(item.payerId===data.user.id&&item.payeeId===person.id)||(item.payeeId===data.user.id&&item.payerId===person.id));
-  return <Modal title={`History with ${displayName(person.name)}`} subtitle="Verified transactions · both directions" onClose={onClose}>
-    <div className="transaction-history">{items.map(item=>{const owedToYou=item.payeeId===data.user.id;return <article key={item.id}><span className={owedToYou?'incoming':'outgoing'}>{owedToYou?<ArrowDownLeft/>:<ArrowUpRight/>}</span><div><strong>{item.purpose}</strong><small>{relativeTime(item.createdAt)} · {item.kind==='split'?'Group split':'Individual'}</small>{item.note&&<em>{item.note}</em>}</div><b className={owedToYou?'green':'red'}>{owedToYou?'+':'−'} {money(item.amount)}</b></article>})}{items.length===0&&<div className="empty-state"><CheckCheck size={30}/><strong>No verified transactions</strong><p>Verified transactions between you will appear here.</p></div>}</div>
-  </Modal>;
+  return <><Modal title={`History with ${displayName(person.name)}`} subtitle="Verified and discarded transactions · both directions" onClose={onClose}>
+    <div className="transaction-history">{items.map(item=>{const owedToYou=item.payeeId===data.user.id;const discarded=item.status==='discarded';return <article className={discarded?'discarded':''} key={item.id}><span className={owedToYou?'incoming':'outgoing'}>{owedToYou?<ArrowDownLeft/>:<ArrowUpRight/>}</span><div><strong>{item.purpose}</strong><small>{relativeTime(item.createdAt)} · {discarded?'Discarded':item.splitMode==='manual'?'Manual split':item.splitMode==='equal'?'Equal split':'Individual'}</small></div>{item.splitMode==='manual'&&<button className="split-info-button" onClick={()=>setDetails(item)} aria-label="Show manual split details"><Info size={14}/></button>}<b className={discarded?'':owedToYou?'green':'red'}>{discarded?'Discarded':`${owedToYou?'+':'−'} ${money(item.amount)}`}</b></article>})}{items.length===0&&<div className="empty-state"><CheckCheck size={30}/><strong>No transaction history</strong><p>Verified and discarded transactions between you will appear here.</p></div>}</div>
+  </Modal>{details&&<Modal title="Manual split details" subtitle={`${money(details.totalAmount||0)} across ${details.splitCount||0} people`} onClose={()=>setDetails(null)}><div className="split-breakdown">{details.splitBreakdown?.map(share=><div key={share.userId}><span>{share.userId===data.user.id?'You':displayName(share.name)}{share.initiator?' · initiator':''}</span><strong>{money(share.amount)}</strong></div>)}</div></Modal>}</>;
 }
 
 export function PendingModal({ mode, data, onClose, onData, notify }: {
@@ -78,6 +79,9 @@ export function PendingModal({ mode, data, onClose, onData, notify }: {
 }) {
   const items = data.payments[mode];
   const [verifyTarget, setVerifyTarget] = useState<Payment|'all'|null>(null);
+  const [discardTarget,setDiscardTarget]=useState<Payment|null>(null);
+  const [deleteTarget,setDeleteTarget]=useState<Payment|null>(null);
+  const [details,setDetails]=useState<Payment|null>(null);
   const title = mode === 'incoming' ? 'Incoming requests' : 'Outgoing requests';
 
   async function verified() {
@@ -86,6 +90,8 @@ export function PendingModal({ mode, data, onClose, onData, notify }: {
       : await mutate(`/payments/${(verifyTarget as Payment).id}/verify`);
     onData(result); setVerifyTarget(null); notify(verifyTarget === 'all' ? 'All requests verified' : 'Payment verified');
   }
+  async function discarded(){if(!discardTarget)return;const result=await mutate(`/payments/${discardTarget.id}/discard`);onData(result);setDiscardTarget(null);notify('Request discarded');}
+  async function deleted(){if(!deleteTarget)return;const result=await mutate(`/payments/${deleteTarget.id}`,undefined,'DELETE');onData(result);setDeleteTarget(null);notify('Request deleted');}
 
   return <>
     <Modal title={title} subtitle={mode==='incoming'?'Waiting for your confirmation':'Waiting for the other person'} onClose={onClose}>
@@ -97,28 +103,30 @@ export function PendingModal({ mode, data, onClose, onData, notify }: {
           const personColor = mode==='incoming' ? item.payeeColor : item.payerColor;
           return <article className="request-card" key={item.id}>
             <Avatar name={personName} color={personColor}/>
-            <div className="request-info"><strong>{displayName(personName)}</strong><span>{item.purpose} · {relativeTime(item.createdAt)}</span>{item.note&&<small>“{item.note}”</small>}</div>
-            <div className="request-amount"><strong>{money(item.amount)}</strong>{item.kind==='split'&&<span className="info-badge" title={`Split across ${item.splitCount} people · ${money(item.totalAmount||0)} total`}><Info size={13}/></span>}</div>
-            {mode==='incoming' && <button className="verify-btn" onClick={()=>setVerifyTarget(item)}><Check size={16}/> Verify</button>}
+            <div className="request-info"><strong>{displayName(personName)}</strong><span>{item.purpose} · {item.splitMode==='manual'?'Manual split · ':item.splitMode==='equal'?'Equal split · ':''}{relativeTime(item.createdAt)}</span></div>
+            <div className="request-amount"><strong>{money(item.amount)}</strong>{item.splitMode==='manual'&&<button className="info-badge" onClick={()=>setDetails(item)} title="Show each assigned share"><Info size={13}/></button>}</div>
+            {mode==='incoming' ? <div className="request-actions"><button className="discard-btn" onClick={()=>setDiscardTarget(item)}>Discard</button><button className="verify-btn" onClick={()=>setVerifyTarget(item)}><Check size={16}/> Verify</button></div>:<button className="discard-btn" onClick={()=>setDeleteTarget(item)}><Trash2 size={14}/> Delete</button>}
           </article>;
         })}
       </div>
       {mode==='incoming'&&items.length>1&&<button className="primary-btn full" onClick={()=>setVerifyTarget('all')}><CheckCheck size={18}/> Confirm all</button>}
-      {mode==='outgoing'&&items.length>0&&<p className="modal-footnote"><Trash2 size={14}/> Verified requests can be cleared from payment history.</p>}
+      {mode==='outgoing'&&items.length>0&&<p className="modal-footnote"><Trash2 size={14}/> Deleted requests are permanently removed from both users.</p>}
     </Modal>
     {verifyTarget&&<MpinModal action={verifyTarget==='all'?'Verify every incoming request':`Verify ${money((verifyTarget as Payment).amount)} for ${(verifyTarget as Payment).purpose}`} onClose={()=>setVerifyTarget(null)} onVerified={verified}/>}
+    {discardTarget&&<MpinModal action={`Discard ${money(discardTarget.amount)} request for ${discardTarget.purpose}`} onClose={()=>setDiscardTarget(null)} onVerified={discarded}/>}
+    {deleteTarget&&<MpinModal action={`Permanently delete ${deleteTarget.purpose}`} onClose={()=>setDeleteTarget(null)} onVerified={deleted}/>}
+    {details&&<Modal title="Manual split details" subtitle={`${money(details.totalAmount||0)} across ${details.splitCount||0} people`} onClose={()=>setDetails(null)}><div className="split-breakdown">{details.splitBreakdown?.map(share=><div key={share.userId}><span>{share.userId===data.user.id?'You':displayName(share.name)}{share.initiator?' · initiator':''}</span><strong>{money(share.amount)}</strong></div>)}</div></Modal>}
   </>;
 }
 
 export function LendModal({ person, onClose, onData, notify }: { person:User; onClose:()=>void; onData:(d:Bootstrap)=>void; notify:(s:string)=>void }) {
-  const [amount,setAmount]=useState(''); const [purpose,setPurpose]=useState(''); const [note,setNote]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
-  async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{const d=await mutate('/payments/lend',{borrowerId:person.id,amount:Number(amount),purpose,note});onData(d);notify(`Request sent to ${person.name.split(' ')[0]}`);onClose();}catch(err){setError(err instanceof Error?err.message:'Could not send request.');}finally{setBusy(false)}}
+  const [amount,setAmount]=useState(''); const [purpose,setPurpose]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
+  async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{const d=await mutate('/payments/lend',{borrowerId:person.id,amount:Number(amount),purpose});onData(d);notify(`Request sent to ${person.name.split(' ')[0]}`);onClose();}catch(err){setError(err instanceof Error?err.message:'Could not send request.');}finally{setBusy(false)}}
   return <Modal title="Record money lent" subtitle="They’ll verify it before it reaches your ledger" onClose={onClose}>
     <div className="person-pill"><Avatar name={person.name} color={person.avatarColor}/><span>Lent to<strong>{displayName(person.name)}</strong></span></div>
     <form className="stack-form" onSubmit={submit}>
       <label><span>Amount</span><div className="money-input"><b>रु</b><input inputMode="numeric" placeholder="0" value={amount} onChange={e=>setAmount(e.target.value.replace(/\D/g,''))}/></div></label>
       <label><span>Purpose</span><input placeholder="e.g. Lunch, tickets, taxi" value={purpose} onChange={e=>setPurpose(e.target.value)}/></label>
-      <label><span>Note <em>optional</em></span><textarea placeholder="Add a helpful detail" rows={2} value={note} onChange={e=>setNote(e.target.value)}/></label>
       {error&&<div className="form-error">{error}</div>}
       <button className="primary-btn full" disabled={busy}><UserPlus size={18}/>{busy?'Sending…':'Send lend request'}</button>
     </form>
@@ -127,14 +135,14 @@ export function LendModal({ person, onClose, onData, notify }: { person:User; on
 
 export function SplitModal({ data, onClose, onData, notify }:{data:Bootstrap;onClose:()=>void;onData:(d:Bootstrap)=>void;notify:(s:string)=>void}){
   const [purpose,setPurpose]=useState(''); const [total,setTotal]=useState(''); const [mode,setMode]=useState<'equal'|'manual'>('equal');
-  const [selected,setSelected]=useState<string[]>([data.user.id]); const [manual,setManual]=useState<Record<string,string>>({}); const [notes,setNotes]=useState<Record<string,string>>({});
+  const [selected,setSelected]=useState<string[]>([data.user.id]); const [manual,setManual]=useState<Record<string,string>>({});
   const [busy,setBusy]=useState(false); const [error,setError]=useState('');
   const allPeople=[data.user,...data.people];
   const share=selected.length?Math.round(Number(total||0)/selected.length):0;
   const selectedPeople=useMemo(()=>allPeople.filter(p=>selected.includes(p.id)),[selected,allPeople]);
   function toggle(id:string){if(id===data.user.id)return;setSelected(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);}
   async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{
-    const participants=selectedPeople.map(p=>({userId:p.id,amount:mode==='manual'?Number(manual[p.id]||0):share,note:notes[p.id]}));
+    const participants=selectedPeople.map(p=>({userId:p.id,amount:mode==='manual'?Number(manual[p.id]||0):share}));
     const d=await mutate('/payments/split',{purpose,totalAmount:Number(total),participants,mode});onData(d);notify('Group payment request sent');onClose();
   }catch(err){setError(err instanceof Error?err.message:'Could not create split.');}finally{setBusy(false)}}
   return <Modal title="Split a payment" subtitle="Everyone confirms their own share" onClose={onClose} wide>
@@ -144,7 +152,7 @@ export function SplitModal({ data, onClose, onData, notify }:{data:Bootstrap;onC
       <div className="field-block"><span className="field-label">Split with</span><div className="people-picker">{allPeople.map(p=><button type="button" className={selected.includes(p.id)?'selected':''} onClick={()=>toggle(p.id)} key={p.id}><Avatar name={p.name} color={p.avatarColor} size="sm"/><span>{p.id===data.user.id?'You':p.name.split(' ')[0]}</span>{selected.includes(p.id)&&<i><Check size={11}/></i>}</button>)}</div></div>
       <div className="split-toggle"><button type="button" className={mode==='equal'?'active':''} onClick={()=>setMode('equal')}><UsersRound size={17}/> Equal</button><button type="button" className={mode==='manual'?'active':''} onClick={()=>setMode('manual')}><Split size={17}/> Manual</button></div>
       {mode==='equal'?<div className="split-preview"><span>Each person pays</span><strong>{money(share)}</strong><small>{selected.length} people · includes you</small></div>:
-        <div className="manual-list">{selectedPeople.map(p=><div className="manual-row" key={p.id}><Avatar name={p.name} color={p.avatarColor} size="sm"/><span>{p.id===data.user.id?'You':displayName(p.name)}</span><div className="mini-money"><b>रु</b><input inputMode="numeric" placeholder="0" value={manual[p.id]||''} onChange={e=>setManual({...manual,[p.id]:e.target.value.replace(/\D/g,'')})}/></div><input className="mini-note" placeholder="Optional note" value={notes[p.id]||''} onChange={e=>setNotes({...notes,[p.id]:e.target.value})}/></div>)}</div>}
+        <div className="manual-list">{selectedPeople.map(p=><div className="manual-row" key={p.id}><Avatar name={p.name} color={p.avatarColor} size="sm"/><span>{p.id===data.user.id?'You':displayName(p.name)}</span><div className="mini-money"><b>रु</b><input inputMode="numeric" placeholder="Amount" value={manual[p.id]||''} onChange={e=>setManual({...manual,[p.id]:e.target.value.replace(/\D/g,'')})}/></div></div>)}</div>}
       {error&&<div className="form-error">{error}</div>}
       <button className="primary-btn full" disabled={busy||selected.length<2}><ChevronDown className="send-split-icon" size={18}/>{busy?'Sending…':`Initiate request · ${money(Number(total||0))}`}</button>
     </form>

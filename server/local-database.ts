@@ -48,7 +48,8 @@ const sqliteSchema = `
     id TEXT PRIMARY KEY, initiator_id TEXT NOT NULL REFERENCES users(id), payer_id TEXT NOT NULL REFERENCES users(id),
     payee_id TEXT NOT NULL REFERENCES users(id), amount INTEGER NOT NULL, purpose TEXT NOT NULL,
     note TEXT, kind TEXT NOT NULL, split_id TEXT, split_count INTEGER, total_amount INTEGER,
-    status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, verified_at TEXT
+    split_mode TEXT, split_breakdown_json TEXT, payer_seen_at TEXT,
+    status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, verified_at TEXT, discarded_at TEXT
   );
   CREATE TABLE IF NOT EXISTS connections (
     user_a TEXT NOT NULL REFERENCES users(id), user_b TEXT NOT NULL REFERENCES users(id),
@@ -108,6 +109,10 @@ export async function initializeLocalDatabase(db: AppDatabase) {
   await ensureColumn(db, 'polls', 'options_json', 'TEXT');
   await ensureColumn(db, 'polls', 'winning_option', 'TEXT');
   await ensureColumn(db, 'polls', 'result_notified_at', 'TEXT');
+  await ensureColumn(db, 'payment_requests', 'split_mode', 'TEXT');
+  await ensureColumn(db, 'payment_requests', 'split_breakdown_json', 'TEXT');
+  await ensureColumn(db, 'payment_requests', 'payer_seen_at', 'TEXT');
+  await ensureColumn(db, 'payment_requests', 'discarded_at', 'TEXT');
   const includeDemoGroups = process.env.SAJILO_SEED_DEMO_GROUPS === 'true';
 
   const userCount = await db.get<{ count: number }>('SELECT COUNT(*) count FROM users');

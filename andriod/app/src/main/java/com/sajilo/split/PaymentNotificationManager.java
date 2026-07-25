@@ -9,9 +9,16 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Build;
+import android.service.notification.StatusBarNotification;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.HashSet;
+import java.util.Set;
 
 final class PaymentNotificationManager {
     static final String CHANNEL_ID = "payment_requests_v1";
@@ -79,6 +86,26 @@ final class PaymentNotificationManager {
 
         NotificationManagerCompat.from(context).notify(notificationId(requestId), notification);
         return true;
+    }
+
+    static void cancel(Context context, String requestId) {
+        NotificationManagerCompat.from(context).cancel(notificationId(requestId));
+    }
+
+    static void reconcile(Context context, JSONArray incoming) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager == null) return;
+        Set<Integer> expected = new HashSet<>();
+        for (JSONObject item : NativeUi.objects(incoming)) {
+            expected.add(notificationId(item.optString("id")));
+        }
+        for (StatusBarNotification active : manager.getActiveNotifications()) {
+            String channel = active.getNotification().getChannelId();
+            if (CHANNEL_ID.equals(channel) && !expected.contains(active.getId())) {
+                manager.cancel(active.getId());
+            }
+        }
     }
 
     private static int notificationId(String requestId) {
