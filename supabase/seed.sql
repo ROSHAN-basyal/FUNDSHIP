@@ -1,10 +1,27 @@
--- Optional development/demo seed. Do not use these known passwords for real users.
-insert into public.users
-  (id, credential_id, name, phone, password_hash, mpin_hash, must_change_password, avatar_color)
+-- Optional private-beta seed for an empty database.
+-- For a destructive reset of an existing database, use reset_beta_users.sql.
+-- The bcrypt hashes represent the administrator-provided common temporary
+-- password. Each user must replace it and create a private MPIN at first login.
+
+insert into public.users (
+  id, credential_id, name, phone, password_hash, mpin_hash,
+  must_change_password, avatar_color, profile_photo
+)
 values
-  ('u1', 'RB-001', 'Roshan Basyal', '9800000001', 'ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f', 'ed946f65d2c785d90e827c5ffd879ce3b49c68d4c88013074176a7e73bc58bcf', false, '#e7864a'),
-  ('u2', 'NP-002', 'Nawaraj Poudel', '9800000002', '15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225', '57fb0303e4a6845cd7a1484ee9773c218975e9c9a763114e668259498cad2f30', false, '#687fbc'),
-  ('u3', 'SA-003', 'Sujata Aryal', '9800000003', 'a68349561396ec264a350847024a4521d00beaa3358660c2709a80f31c7acdd0', '7768e375a15e957a64adf43f42e9c54666a035ab58596e198a4a497bb17d65e8', false, '#b76475'),
-  ('u4', 'KS-004', 'Kiran Shrestha', '9800000004', 'a68349561396ec264a350847024a4521d00beaa3358660c2709a80f31c7acdd0', '43bcfd67415041651733e9f16b4126ed6b8b30b0c9e77acb9da38a542ff0eaad', false, '#4c9686'),
-  ('u5', 'AP-005', 'Anish Pandey', '9800000005', 'a68349561396ec264a350847024a4521d00beaa3358660c2709a80f31c7acdd0', '6a95bbab63d587b596398c4bd7e91a132f24032d2007d107e5ea71967724b092', false, '#a779b8')
-on conflict (id) do nothing;
+  (gen_random_uuid()::text, 'RsnB',    'Roshan Basyal',      null, '$2b$12$X3HKncrg.DkIm0prQQxoNuRG1tUI0qxyrvGrpcI4HBkG/6v/AreVa', null, true, '#E7864A', null),
+  (gen_random_uuid()::text, 'NwrjP',   'Nawaraj Poudel',     null, '$2b$12$ASSw0eRbeY6cLhhaGY74Ren/t0jpoaM4ZbIE3i5f/l5vXE92WMav2', null, true, '#687FBC', null),
+  (gen_random_uuid()::text, 'HemsB',   'Hemanta Bhusal',     null, '$2b$12$6CyBUNOdnMwxNRP9sGjjJeEjF6G8Fzu6Qj8XoJYZCqXHzuGOluc56', null, true, '#4C9686', null),
+  (gen_random_uuid()::text, 'SachinG', 'Sachin Gautam',      null, '$2b$12$xwdueAKXzi0/vOerhDDWG.eCi7XG.wSrj8IDBFZf0M8e3YMZbwZtO', null, true, '#B76475', null),
+  (gen_random_uuid()::text, 'BiswasN', 'Biswash Neupane',    null, '$2b$12$Y6t5MEiagRQYFy4/RNbRfOwWY4iVJkTGNYXPCoad7CIEs9Kb7q4qC', null, true, '#A779B8', null),
+  (gen_random_uuid()::text, 'MadhuSP', 'Madhu Sudan Pandey', null, '$2b$12$dTetw7VIJHGhxo6iqyUC4uDAwxVpFvwWzSahau8sya9Y8oZPR4pCy', null, true, '#34725A', null),
+  (gen_random_uuid()::text, 'SrthkB',  'Sarthak Bhandari',   null, '$2b$12$Yd7owwhbE.OmnuHvBy6xPuOQCEAoL9.d1dVqXnRPBI57y12D75U7q', null, true, '#4E5FA8', null),
+  (gen_random_uuid()::text, 'SntshN',  'Santosh Neupane',    null, '$2b$12$uSF3O2phGbh0ETR3M3kt5eNYy4ZUo3PGaHh15t4PAex3cpJJWDaJK', null, true, '#B04A38', null),
+  (gen_random_uuid()::text, 'SujalK',  'Sujal Karki',        null, '$2b$12$JBbqggSqRqqRZbgeeI794u2DucPWQt/3lMZ6IUPccS4wkF27T7rkS', null, true, '#8A4776', null),
+  (gen_random_uuid()::text, 'Spndhn',  'Spandhan',           null, '$2b$12$Qa70xKYd39e7CKcPEDmaiuca2urZhoDrnSb8fp2G/NB8b2obrciEG', null, true, '#7B5A30', null),
+  (gen_random_uuid()::text, 'SulavP',  'Sulav Pandey',       null, '$2b$12$kWU97TgfJJ18u2yxY./yBu.YFL/gop9N.7EvHfttwGP/4x5qYuQCu', null, true, '#327461', null)
+on conflict (credential_id) do nothing;
+
+insert into public.user_sync_state (user_id, revision, updated_at)
+select id, 1, now()
+from public.users
+on conflict (user_id) do nothing;

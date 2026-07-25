@@ -63,7 +63,7 @@ export default function App(){
   useEffect(()=>{if(!session.get())return;if(!initial){void load();return}void getSync(initial.revision||0).then(result=>{if(result.changed)setData(rememberBootstrap(result.snapshot))}).catch(()=>{/* cached state stays usable offline */})},[]);
   if(loading)return <div className="splash"><div className="brand-mark brand-mark-large"><span>F</span></div><strong>FUNDSHIP</strong><span className="loading-dots"><i/><i/><i/></span></div>;
   if(!data)return <><LoginScreen onLogin={()=>load()}/>{error&&<div className="floating-error">{error}</div>}</>;
-  if(data.user.mustChangePassword)return <RequiredPasswordChange onChanged={load}/>;
-  if(data.user.hasMpin===false)return <RequiredMpinSetup onChanged={load}/>;
+  if(data.user.onboardingStep==='change_password'||data.user.mustChangePassword)return <RequiredPasswordChange onChanged={load}/>;
+  if(data.user.onboardingStep==='create_mpin'||data.user.hasMpin===false)return <RequiredMpinSetup onChanged={load}/>;
   return <AppShell data={data} onData={setData}/>;
 }

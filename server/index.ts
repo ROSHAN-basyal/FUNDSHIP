@@ -176,6 +176,11 @@ const publicUser = (
     profilePhoto: row.profile_photo,
     mustChangePassword: Boolean(row.must_change_password),
     hasMpin: Boolean(row.mpin_hash),
+    onboardingStep: Boolean(row.must_change_password)
+      ? 'change_password'
+      : row.mpin_hash
+        ? 'complete'
+        : 'create_mpin',
   } : {}),
 });
 
@@ -782,6 +787,7 @@ async function auth(req: AuthedRequest, res: Response, next: NextFunction) {
       req.mustChangePassword
       && req.path !== '/api/bootstrap'
       && req.path !== '/api/auth/change-password'
+      && req.path !== '/api/auth/logout'
     ) {
       res.status(428).json({ error: 'Change your initial password before continuing.' });
       return;
@@ -792,6 +798,7 @@ async function auth(req: AuthedRequest, res: Response, next: NextFunction) {
       req.mustCreateMpin
       && req.path !== '/api/bootstrap'
       && req.path !== '/api/auth/set-mpin'
+      && req.path !== '/api/auth/logout'
     ) {
       res.status(428).json({ error: 'Create your MPIN before continuing.' });
       return;
@@ -832,7 +839,7 @@ app.get('/api/cron/maintenance', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const { credentialId, password } = req.body ?? {};
   const user = await db.get<any>(
-    'SELECT * FROM users WHERE upper(credential_id) = upper(?)',
+    'SELECT * FROM users WHERE lower(credential_id) = lower(?)',
     [String(credentialId || '')],
   );
   if (!user || !await verifySecret(String(password || ''), user.password_hash)) {
@@ -862,6 +869,10 @@ app.post('/api/auth/change-password', auth, async (req: AuthedRequest, res) => {
   }
   if (String(newPassword || '').length < 8) {
     res.status(400).json({ error: 'Use at least 8 characters.' });
+    return;
+  }
+  if (await verifySecret(String(newPassword), user.password_hash)) {
+    res.status(400).json({ error: 'Your new password must be different from the initial password.' });
     return;
   }
   await db.run(
@@ -1064,7 +1075,7 @@ app.post('/api/groups/:id/invites', auth, async (req: AuthedRequest, res) => {
   const credentialId = String(req.body?.credentialId || '').trim();
   if (credentialId) {
     const invitedUser = await db.get<{ id: string }>(
-      'SELECT id FROM users WHERE upper(credential_id)=upper(?)',
+      'SELECT id FROM users WHERE lower(credential_id)=lower(?)',
       [credentialId],
     );
     if (!invitedUser) {
@@ -1903,7 +1914,7 @@ app.post('/api/groups/:id/polls', auth, async (req: AuthedRequest, res) => {
 app.post('/api/connections/request', auth, async (req: AuthedRequest, res) => {
   const credentialId = String(req.body?.credentialId || '').trim();
   const target = await db.get<any>(
-    'SELECT * FROM users WHERE upper(credential_id)=upper(?)',
+    'SELECT * FROM users WHERE lower(credential_id)=lower(?)',
     [credentialId],
   );
   if (!target) {

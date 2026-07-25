@@ -122,12 +122,31 @@ export async function initializeLocalDatabase(db: AppDatabase) {
     const addUser = `INSERT INTO users
       (id, credential_id, name, phone, password_hash, mpin_hash, must_change_password, avatar_color)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-    await tx.run(addUser, ['u1', 'RB-001', 'Roshan Basyal', '9800000001', hash('12345678'), hash('2580'), 0, '#e7864a']);
-    await tx.run(addUser, ['u2', 'NP-002', 'Nawaraj Poudel', '9800000002', hash('123456789'), hash('1470'), 0, '#687fbc']);
-    await tx.run(addUser, ['u3', 'SA-003', 'Sujata Aryal', '9800000003', hash('welcome123'), hash('3690'), 0, '#b76475']);
-    await tx.run(addUser, ['u4', 'KS-004', 'Kiran Shrestha', '9800000004', hash('welcome123'), hash('4560'), 0, '#4c9686']);
-    await tx.run(addUser, ['u5', 'AP-005', 'Anish Pandey', '9800000005', hash('welcome123'), hash('7890'), 0, '#a779b8']);
-    for (const userId of ['u1', 'u2', 'u3', 'u4', 'u5']) {
+    const users = includeDemoGroups
+      ? [
+          ['u1', 'RB-001', 'Roshan Basyal', '9800000001', hash('12345678'), hash('2580'), 0, '#e7864a'],
+          ['u2', 'NP-002', 'Nawaraj Poudel', '9800000002', hash('123456789'), hash('1470'), 0, '#687fbc'],
+          ['u3', 'SA-003', 'Sujata Aryal', '9800000003', hash('welcome123'), hash('3690'), 0, '#b76475'],
+          ['u4', 'KS-004', 'Kiran Shrestha', '9800000004', hash('welcome123'), hash('4560'), 0, '#4c9686'],
+          ['u5', 'AP-005', 'Anish Pandey', '9800000005', hash('welcome123'), hash('7890'), 0, '#a779b8'],
+        ]
+      : [
+          ['beta-rsnb', 'RsnB', 'Roshan Basyal', null, hash('12345678'), null, 1, '#E7864A'],
+          ['beta-nwrjp', 'NwrjP', 'Nawaraj Poudel', null, hash('12345678'), null, 1, '#687FBC'],
+          ['beta-hemsb', 'HemsB', 'Hemanta Bhusal', null, hash('12345678'), null, 1, '#4C9686'],
+          ['beta-saching', 'SachinG', 'Sachin Gautam', null, hash('12345678'), null, 1, '#B76475'],
+          ['beta-biswasn', 'BiswasN', 'Biswash Neupane', null, hash('12345678'), null, 1, '#A779B8'],
+          ['beta-madhusp', 'MadhuSP', 'Madhu Sudan Pandey', null, hash('12345678'), null, 1, '#34725A'],
+          ['beta-srthkb', 'SrthkB', 'Sarthak Bhandari', null, hash('12345678'), null, 1, '#4E5FA8'],
+          ['beta-sntshn', 'SntshN', 'Santosh Neupane', null, hash('12345678'), null, 1, '#B04A38'],
+          ['beta-sujalk', 'SujalK', 'Sujal Karki', null, hash('12345678'), null, 1, '#8A4776'],
+          ['beta-spndhn', 'Spndhn', 'Spandhan', null, hash('12345678'), null, 1, '#7B5A30'],
+          ['beta-sulavp', 'SulavP', 'Sulav Pandey', null, hash('12345678'), null, 1, '#327461'],
+        ];
+    for (const user of users) {
+      await tx.run(addUser, user);
+    }
+    for (const [userId] of users) {
       await tx.run(
         'INSERT INTO user_sync_state (user_id,revision,updated_at) VALUES (?,?,?)',
         [userId, 1, new Date().toISOString()],

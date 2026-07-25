@@ -127,7 +127,7 @@ async function main() {
   }
 
   stdout.write(`\nAccount "${credentialId}" created on ${databaseHost}.\n`);
-  stdout.write("The user must replace the initial password at first login.\n");
+  stdout.write("At first login the user must replace the initial password, then create a private MPIN.\n");
 }
 
 main().catch((error) => {

@@ -7,6 +7,7 @@ export type User = {
   profilePhoto?: string;
   mustChangePassword?: boolean;
   hasMpin?: boolean;
+  onboardingStep?: 'change_password' | 'create_mpin' | 'complete';
   role?: 'admin' | 'member';
 };
 

@@ -13,6 +13,7 @@ export function RequiredPasswordChange({ onChanged }: { onChanged: () => Promise
     event.preventDefault();setError('');
     if(newPassword.length<8){setError('Use at least 8 characters.');return}
     if(newPassword!==confirmPassword){setError('The new passwords do not match.');return}
+    if(newPassword===currentPassword){setError('Your new password must be different from the initial password.');return}
     setBusy(true);
     try{
       await request('/auth/change-password',{method:'POST',body:JSON.stringify({oldPassword:currentPassword,newPassword})});
