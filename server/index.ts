@@ -876,7 +876,7 @@ app.post('/api/auth/change-password', auth, async (req: AuthedRequest, res) => {
     return;
   }
   await db.run(
-    'UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?',
+    'UPDATE users SET password_hash = ?, must_change_password = (1 = 0) WHERE id = ?',
     [await createSecretHash(String(newPassword)), req.userId!],
   );
   await touchUsers([req.userId!]);
