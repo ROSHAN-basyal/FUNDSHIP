@@ -642,6 +642,7 @@ async function getBootstrap(userId: string, knownRevision?: number) {
     balances.set(otherId, current);
   }
   const ledger = [...balances.values()]
+    .filter((item) => item.amount !== 0)
     .sort((first, second) => Math.abs(second.amount) - Math.abs(first.amount));
   const owedToYou = ledger.reduce((sum, item) => sum + Math.max(0, item.amount), 0);
   const youOwe = ledger.reduce((sum, item) => sum + Math.max(0, -item.amount), 0);

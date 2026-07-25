@@ -4,7 +4,8 @@ import { Modal } from './Modal';
 import { Avatar } from './Avatar';
 import { mutate, request } from '../lib/api';
 import { displayName } from '../lib/format';
-import type { Bootstrap } from '../types';
+import { TransactionHistoryModal } from './PaymentDialogs';
+import type { Bootstrap, User } from '../types';
 
 function readImage(file:File,onDone:(data:string)=>void){
   const reader=new FileReader();
@@ -30,12 +31,13 @@ export function ProfileModal({data,onClose,onData,notify}:{data:Bootstrap;onClos
   const [password,setPassword]=useState('');const[oldMpin,setOldMpin]=useState('');const[newMpin,setNewMpin]=useState('');
   const [busy,setBusy]=useState(false);const[error,setError]=useState('');
   const [connectionId,setConnectionId]=useState('');
+  const [historyPerson,setHistoryPerson]=useState<User|null>(null);
   async function saveProfile(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{const d=await mutate('/profile',{phone,profilePhoto:photo});onData(d);notify('Profile updated');onClose();}catch(err){setError(err instanceof Error?err.message:'Could not update profile.')}finally{setBusy(false)}}
   async function changePassword(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{await request('/auth/change-password',{method:'POST',body:JSON.stringify({oldPassword,newPassword})});notify('Password changed');setOldPassword('');setNewPassword('');}catch(err){setError(err instanceof Error?err.message:'Could not change password.')}finally{setBusy(false)}}
   async function changeMpin(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{await request('/auth/change-mpin',{method:'POST',body:JSON.stringify({password,oldMpin,newMpin})});notify('MPIN changed');setPassword('');setOldMpin('');setNewMpin('');}catch(err){setError(err instanceof Error?err.message:'Could not change MPIN.')}finally{setBusy(false)}}
   async function sendConnection(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{const d=await mutate('/connections/request',{credentialId:connectionId});onData(d);setConnectionId('');notify('Connection request sent');}catch(err){setError(err instanceof Error?err.message:'Could not send request.')}finally{setBusy(false)}}
   async function respondConnection(id:string,accept:boolean){setBusy(true);setError('');try{const d=await mutate(`/connections/${encodeURIComponent(id)}/respond`,{accept});onData(d);notify(accept?'Connection accepted':'Connection declined');}catch(err){setError(err instanceof Error?err.message:'Could not respond.')}finally{setBusy(false)}}
-  return <Modal title="Your profile" subtitle={`${data.user.credentialId} · system-issued ID`} onClose={onClose} wide>
+  return <><Modal title="Your profile" subtitle={`${data.user.credentialId} · system-issued ID`} onClose={onClose} wide>
     <div className="profile-tabs"><button className={tab==='profile'?'active':''} onClick={()=>{setTab('profile');setError('')}}><Smartphone size={17}/> Profile</button><button className={tab==='connections'?'active':''} onClick={()=>{setTab('connections');setError('')}}><Link2 size={17}/> Connections</button><button className={tab==='security'?'active':''} onClick={()=>{setTab('security');setError('')}}><Shield size={17}/> Security</button></div>
     {tab==='profile'?<form className="stack-form" onSubmit={saveProfile}>
       <div className="profile-photo-row"><div className="photo-preview">{photo?<img src={photo} alt="Profile preview"/>:<Avatar name={data.user.name} color={data.user.avatarColor} size="xl"/>}<label><Camera size={15}/><input type="file" accept="image/*" onChange={e=>e.target.files?.[0]&&readImage(e.target.files[0],setPhoto)}/></label></div><div><strong>{data.user.name}</strong><span>{data.user.credentialId}</span></div></div>
@@ -44,7 +46,7 @@ export function ProfileModal({data,onClose,onData,notify}:{data:Bootstrap;onClos
     </form>:tab==='connections'?<div className="connection-panel">
       <form className="connection-form" onSubmit={sendConnection}><label><span>Connect by user ID</span><div><input value={connectionId} onChange={e=>setConnectionId(e.target.value.toUpperCase())} placeholder="e.g. NP-002"/><button disabled={busy||!connectionId.trim()}><UserPlus size={17}/> Send</button></div></label></form>
       {data.connectionRequests.filter(item=>!item.outgoing).length>0&&<section><span className="field-label"><Bell size={14}/> Requests for you</span>{data.connectionRequests.filter(item=>!item.outgoing).map(item=><article className="connection-request" key={item.id}><Avatar name={item.requester.name} color={item.requester.avatarColor}/><div><strong>{displayName(item.requester.name)}</strong><small>{item.requester.credentialId}</small></div><button onClick={()=>respondConnection(item.id,false)}><X size={15}/></button><button className="accept" onClick={()=>respondConnection(item.id,true)}><Check size={15}/></button></article>)}</section>}
-      <section><span className="field-label">Connected people · {data.connections.length}</span><div className="connected-list">{data.connections.map(person=><article key={person.id}><Avatar name={person.name} color={person.avatarColor}/><div><strong>{displayName(person.name)}</strong><small>{person.credentialId}</small></div><span><Link2 size={13}/> Connected</span></article>)}</div></section>
+      <section><span className="field-label">Connected people · {data.connections.length}</span><div className="connected-list">{data.connections.map(person=><article className="connected-person" role="button" tabIndex={0} onClick={()=>setHistoryPerson(person)} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();setHistoryPerson(person)}}} key={person.id}><Avatar name={person.name} color={person.avatarColor}/><div><strong>{displayName(person.name)}</strong><small>{person.credentialId} · View transaction history</small></div><span><Link2 size={13}/> Connected</span></article>)}</div></section>
       {data.connectionRequests.filter(item=>item.outgoing).length>0&&<p className="connection-pending">{data.connectionRequests.filter(item=>item.outgoing).length} sent request(s) awaiting approval.</p>}
       {error&&<div className="form-error">{error}</div>}
     </div>:<div className="security-stack">
@@ -52,5 +54,5 @@ export function ProfileModal({data,onClose,onData,notify}:{data:Bootstrap;onClos
       <form className="security-card" onSubmit={changeMpin}><header><span><LockKeyhole size={19}/></span><div><strong>Change MPIN</strong><small>Requires both password and old MPIN.</small></div></header><label><span>Account password</span><input type="password" value={password} onChange={e=>setPassword(e.target.value)}/></label><div className="form-two"><label><span>Old MPIN</span><input type="password" inputMode="numeric" maxLength={4} value={oldMpin} onChange={e=>setOldMpin(e.target.value.replace(/\D/g,''))}/></label><label><span>New MPIN</span><input type="password" inputMode="numeric" maxLength={4} value={newMpin} onChange={e=>setNewMpin(e.target.value.replace(/\D/g,''))}/></label></div><button className="outline-btn" disabled={busy}>Update MPIN</button></form>
       {error&&<div className="form-error">{error}</div>}
     </div>}
-  </Modal>;
+  </Modal>{historyPerson&&<TransactionHistoryModal person={historyPerson} data={data} onClose={()=>setHistoryPerson(null)}/>}</>;
 }
