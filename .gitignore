@@ -9,3 +9,5 @@ server/data/*.db-*
 supabase/.temp
 supabase/link_with_passowrd.txt
 .env*
+andriod/keystore.properties
+andriod/*.jks

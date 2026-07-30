@@ -15,6 +15,10 @@
     {
       "source": "/api/:path*",
       "destination": "/api?__fundship_path=:path*"
+    },
+    {
+      "source": "/download",
+      "destination": "/index.html"
     }
   ],
   "crons": [

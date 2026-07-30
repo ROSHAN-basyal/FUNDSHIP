@@ -15,6 +15,7 @@ import { syncQueuedPayments } from './lib/offlineQueue';
 import { consumeBackgroundSyncCount, setActiveOfflineUser } from './lib/offlineQueue';
 import { playPollSound } from './lib/pwa';
 import { PwaInstallPrompt } from './components/PwaInstallPrompt';
+import { DownloadPage } from './components/DownloadPage';
 import type { Bootstrap } from './types';
 
 function useKeyboardAwareFocus(){
@@ -113,7 +114,7 @@ function AppShell({data,onData}:{data:Bootstrap;onData:(d:Bootstrap)=>void}){
   </div>;
 }
 
-export default function App(){
+function FundshipApplication(){
   useKeyboardAwareFocus();
   const initial=useMemo(()=>session.exists()?cachedBootstrap():null,[]);const [data,setData]=useState<Bootstrap|null>(initial);const[loading,setLoading]=useState(Boolean(session.exists()&&!initial));const[error,setError]=useState('');
   async function load(){setLoading(true);setError('');try{setData(await getBootstrap())}catch(err){const cached=cachedBootstrap();if(err instanceof ApiError&&err.status===401){session.clear();setError(err.message)}else if(cached){setData(cached);setError('You are offline. Only queued payment requests are available.')}else{setError(err instanceof Error?err.message:'Could not load your account.')}}finally{setLoading(false)}}
@@ -123,4 +124,9 @@ export default function App(){
   if(data.user.onboardingStep==='change_password'||data.user.mustChangePassword)return <RequiredPasswordChange onChanged={load}/>;
   if(data.user.onboardingStep==='create_mpin'||data.user.hasMpin===false)return <RequiredMpinSetup onChanged={load}/>;
   return <AppShell data={data} onData={setData}/>;
+}
+
+export default function App(){
+  const path=location.pathname.replace(/\/+$/,'')||'/';
+  return path==='/download'?<DownloadPage/>:<FundshipApplication/>;
 }
