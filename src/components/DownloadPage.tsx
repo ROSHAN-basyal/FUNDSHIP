@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import {
   ArrowRight,
+  AlertTriangle,
   BellRing,
   Check,
   CheckCircle2,
@@ -211,23 +212,29 @@ export function DownloadPage() {
               <div><small>REQUIRES</small><strong>{release.minimumAndroid}</strong></div>
             </div>
           </div>
-          <ol className="install-steps">
-            <li>
-              <span>01</span>
-              <div><strong>Download the APK</strong><p>Tap the Android download button and let the file finish downloading.</p></div>
-              <Check size={18} />
-            </li>
-            <li>
-              <span>02</span>
-              <div><strong>Allow this installation</strong><p>If Android asks, permit your browser to install apps from this source.</p></div>
-              <Check size={18} />
-            </li>
-            <li>
-              <span>03</span>
-              <div><strong>Install and sign in</strong><p>Open the APK, choose Install, then use the FUNDSHIP ID issued to you.</p></div>
-              <Check size={18} />
-            </li>
-          </ol>
+          <div className="install-guide">
+            <ol className="install-steps">
+              <li>
+                <span>01</span>
+                <div><strong>Download the APK</strong><p>Tap the Android download button and let the file finish downloading.</p></div>
+                <Check size={18} />
+              </li>
+              <li>
+                <span>02</span>
+                <div><strong>Allow this installation</strong><p>If Android asks, permit your browser to install apps from this source.</p></div>
+                <Check size={18} />
+              </li>
+              <li>
+                <span>03</span>
+                <div><strong>Install and sign in</strong><p>Open the APK, choose Install, then use the FUNDSHIP ID issued to you.</p></div>
+                <Check size={18} />
+              </li>
+            </ol>
+            <aside className="install-compatibility-note">
+              <AlertTriangle size={19} />
+              <p><strong>Previously installed through USB?</strong> Uninstall that older FUNDSHIP test build once, including from Private Space or cloned profiles, before installing this signed beta.</p>
+            </aside>
+          </div>
         </section>
 
         <section className="download-security-strip">

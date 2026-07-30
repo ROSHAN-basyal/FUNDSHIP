@@ -15,6 +15,12 @@ Both paths are ignored by Git. Back up both files together in a secure password
 manager or encrypted drive. Every future direct-download APK must use this same
 key or Android will reject it as an update.
 
+When the local signing files exist, both debug USB builds and release builds use
+this distribution identity. This prevents a locally installed test build from
+blocking a later website APK with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. CI
+machines without the signing files continue to use Android's temporary debug
+identity and their APKs must never be distributed.
+
 Build the release APK with:
 
 ```bash
@@ -27,6 +33,16 @@ The signed output is:
 ```text
 andriod/app/build/outputs/apk/release/app-release.apk
 ```
+
+Install that production-connected build over USB with:
+
+```bash
+npm run android:install:release
+```
+
+If a phone already contains an older APK signed with Android's default debug
+certificate, uninstall that app from every Android profile (including Private
+Space or cloned-app profiles) once before installing the signed release.
 
 Verify the APK signature and calculate its public checksum before publishing:
 
