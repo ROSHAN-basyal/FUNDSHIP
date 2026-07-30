@@ -1,6 +1,13 @@
 # FUNDSHIP — group polls and shared payments
 
-FUNDSHIP is a native Android implementation of the supplied group poll and personal-ledger specification. Local development uses Express and SQLite; production uses the same Express API as a Vercel Function with Supabase Postgres. The Android client uses Java, Android Views, RecyclerView, and ViewPager2; it does not use a WebView or package the web client.
+See [offline, PWA, and notification behavior](docs/offline-pwa-notifications.md)
+for platform support, security, deployment variables, and operating-system limits.
+
+FUNDSHIP includes a native Android client and a responsive installable web app
+for the supplied group-poll and personal-ledger specification. Local development
+uses Express and SQLite; production uses the same Express API as a Vercel
+Function with Supabase Postgres. Android uses Java, Android Views, RecyclerView,
+and ViewPager2; it does not use a WebView or package the web client.
 
 ## Run locally
 

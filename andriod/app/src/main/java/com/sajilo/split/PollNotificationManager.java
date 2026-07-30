@@ -17,7 +17,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.SystemClock;
 import android.provider.Settings;
-import android.media.RingtoneManager;
+import android.widget.Toast;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
@@ -31,7 +31,8 @@ import java.util.HashSet;
 import java.util.Set;
 
 final class PollNotificationManager {
-    static final String CHANNEL_ID = "urgent_poll_alerts_v3";
+    static final String CHANNEL_ID = "urgent_poll_alerts_v4";
+    private static final String PREVIOUS_CHANNEL_ID = "urgent_poll_alerts_v3";
     private static final String LEGACY_CALL_CHANNEL_ID = "incoming_poll_calls_v2";
     static final String ACTION_YES = "com.sajilo.split.POLL_YES";
     static final String ACTION_NO = "com.sajilo.split.POLL_NO";
@@ -50,6 +51,7 @@ final class PollNotificationManager {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         manager.deleteNotificationChannel(LEGACY_CALL_CHANNEL_ID);
+        manager.deleteNotificationChannel(PREVIOUS_CHANNEL_ID);
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_ID,
             context.getString(R.string.poll_channel_name),
@@ -66,7 +68,7 @@ final class PollNotificationManager {
             .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build();
-        channel.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION), audio);
+        channel.setSound(pollSound(context), audio);
         manager.createNotificationChannel(channel);
     }
 
@@ -110,6 +112,7 @@ final class PollNotificationManager {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setDefaults(NotificationCompat.DEFAULT_LIGHTS | NotificationCompat.DEFAULT_VIBRATE)
+            .setSound(pollSound(context))
             .setAutoCancel(false)
             .setOngoing(false)
             .setOnlyAlertOnce(false)
@@ -164,6 +167,11 @@ final class PollNotificationManager {
     }
 
     private static void submitVote(Context context, PollPayload payload, String choice, Runnable finished) {
+        if (!NetworkState.isOnline(context)) {
+            Toast.makeText(context, "Voting requires an internet connection.", Toast.LENGTH_SHORT).show();
+            finished.run();
+            return;
+        }
         NotificationManagerCompat.from(context).cancel(notificationId(payload.pollId));
         savePendingAction(context, payload.pollId, choice);
         removePayload(context, payload.pollId);
@@ -227,6 +235,19 @@ final class PollNotificationManager {
                 .putExtra(Settings.EXTRA_APP_PACKAGE, context.getPackageName());
         }
         return new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.getPackageName()));
+    }
+
+    static Intent pollNotificationSettingsIntent(Context context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            return new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.getPackageName())
+                .putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL_ID);
+        }
+        return notificationSettingsIntent(context);
+    }
+
+    private static Uri pollSound(Context context) {
+        return Uri.parse("android.resource://" + context.getPackageName() + "/" + R.raw.fundship_poll);
     }
 
     private static PendingIntent appIntent(Context context, PollPayload payload) {

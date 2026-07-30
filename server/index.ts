@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { compare as compareSecret, hash as hashSecret } from 'bcryptjs';
 import cors from 'cors';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import webpush from 'web-push';
 import { createDatabase, type AppDatabase } from './database.js';
 import { initializeLocalDatabase } from './local-database.js';
 
@@ -69,6 +70,94 @@ const legacyHash = (value: string) => createHash('sha256').update(value).digest(
 const pad = (value: number) => String(value).padStart(2, '0');
 const localDate = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 const asIso = (value: unknown) => value instanceof Date ? value.toISOString() : value;
+const SESSION_COOKIE = 'fundship_session';
+const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+
+function cookieValue(req: Request, name: string) {
+  const encodedName = encodeURIComponent(name);
+  for (const part of String(req.headers.cookie || '').split(';')) {
+    const [key, ...value] = part.trim().split('=');
+    if (key === encodedName) {
+      try { return decodeURIComponent(value.join('=')); }
+      catch { return undefined; }
+    }
+  }
+  return undefined;
+}
+
+function setSessionCookie(res: Response, token: string) {
+  const secure = Boolean(process.env.VERCEL || process.env.NODE_ENV === 'production');
+  res.setHeader(
+    'Set-Cookie',
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Path=/api; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_SECONDS}${secure ? '; Secure' : ''}`,
+  );
+}
+
+function clearSessionCookie(res: Response) {
+  const secure = Boolean(process.env.VERCEL || process.env.NODE_ENV === 'production');
+  res.setHeader(
+    'Set-Cookie',
+    `${SESSION_COOKIE}=; HttpOnly; Path=/api; SameSite=Lax; Max-Age=0${secure ? '; Secure' : ''}`,
+  );
+}
+
+function clientMutationId(value: unknown) {
+  const id = String(value || '').trim();
+  if (!id) return randomUUID();
+  return /^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}$/.test(id) ? id : null;
+}
+
+let webPushConfigured = false;
+function configureWebPush() {
+  if (webPushConfigured) return true;
+  const publicKey = process.env.VAPID_PUBLIC_KEY?.trim();
+  const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
+  const subject = process.env.VAPID_SUBJECT?.trim();
+  if (!publicKey || !privateKey || !subject) return false;
+  try {
+    webpush.setVapidDetails(subject, publicKey, privateKey);
+    webPushConfigured = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function sendPollWebPush(
+  userIds: string[],
+  payload: { title: string; body: string; pollId: string; groupId: string },
+) {
+  if (!configureWebPush() || userIds.length === 0) return;
+  const placeholders = userIds.map(() => '?').join(',');
+  const subscriptions = await db.all<any>(
+    `SELECT id,endpoint,p256dh,auth FROM web_push_subscriptions
+     WHERE poll_enabled=? AND user_id IN (${placeholders})`,
+    [db.kind === 'postgres' ? true : 1, ...userIds],
+  );
+  const message = JSON.stringify({
+    title: payload.title,
+    body: payload.body,
+    tag: `poll:${payload.pollId}`,
+    data: {
+      kind: 'poll',
+      pollId: payload.pollId,
+      groupId: payload.groupId,
+      url: `/?page=${encodeURIComponent(payload.groupId)}&poll=${encodeURIComponent(payload.pollId)}`,
+    },
+  });
+  await Promise.allSettled(subscriptions.map(async (item) => {
+    try {
+      await webpush.sendNotification({
+        endpoint: item.endpoint,
+        keys: { p256dh: item.p256dh, auth: item.auth },
+      }, message, { TTL: 24 * 60 * 60, urgency: 'high' });
+    } catch (error: any) {
+      if (error?.statusCode === 404 || error?.statusCode === 410) {
+        await db.run('DELETE FROM web_push_subscriptions WHERE id=?', [item.id]);
+      }
+    }
+  }));
+}
 
 async function verifySecret(value: string, stored: string | null | undefined) {
   if (!stored) return false;
@@ -291,6 +380,12 @@ async function notifyGroup(
     ]),
   );
   if (result.changes) await touchUsers(members.map((member) => member.user_id));
+  if (result.changes && type === 'poll_open') {
+    await sendPollWebPush(
+      members.map((member) => member.user_id),
+      { title, body, pollId: entityId, groupId },
+    );
+  }
 }
 
 async function evaluatePolls() {
@@ -383,6 +478,14 @@ async function runMaintenance() {
       await tx.run(
         'DELETE FROM messages WHERE created_at<?',
         [new Date(Date.now() - 10 * 86_400_000).toISOString()],
+      );
+      await tx.run(
+        'DELETE FROM sessions WHERE expires_at IS NOT NULL AND expires_at<=?',
+        [new Date().toISOString()],
+      );
+      await tx.run(
+        'DELETE FROM payment_mutations WHERE created_at<?',
+        [new Date(Date.now() - 90 * 86_400_000).toISOString()],
       );
       await tx.run(
         'DELETE FROM app_notifications WHERE entity_id IN (SELECT id FROM polls WHERE created_at<?)',
@@ -764,7 +867,8 @@ app.use(async (_req, _res, next) => {
 
 async function auth(req: AuthedRequest, res: Response, next: NextFunction) {
   try {
-    const token = req.header('authorization')?.replace(/^Bearer\s+/i, '');
+    const token = req.header('authorization')?.replace(/^Bearer\s+/i, '')
+      || cookieValue(req, SESSION_COOKIE);
     if (!token) {
       res.status(401).json({ error: 'Please sign in.' });
       return;
@@ -772,8 +876,8 @@ async function auth(req: AuthedRequest, res: Response, next: NextFunction) {
     const session = await db.get<{ user_id: string; must_change_password: boolean | number; mpin_hash: string | null }>(
       `SELECT s.user_id, u.must_change_password, u.mpin_hash
        FROM sessions s JOIN users u ON u.id=s.user_id
-       WHERE s.token = ?`,
-      [token],
+       WHERE s.token = ? AND (s.expires_at IS NULL OR s.expires_at > ?)`,
+      [token, new Date().toISOString()],
     );
     if (!session) {
       res.status(401).json({ error: 'Your session has expired.' });
@@ -781,6 +885,11 @@ async function auth(req: AuthedRequest, res: Response, next: NextFunction) {
     }
     req.userId = session.user_id;
     req.sessionToken = token;
+    if (req.header('authorization') && !cookieValue(req, SESSION_COOKIE)) {
+      // Transparently upgrade older browser sessions that were stored in
+      // localStorage. Native Android continues to use the bearer token.
+      setSessionCookie(res, token);
+    }
     req.mustChangePassword = Boolean(session.must_change_password);
     req.mustCreateMpin = !session.mpin_hash;
     if (
@@ -853,11 +962,13 @@ app.post('/api/auth/login', async (req, res) => {
     );
   }
   const token = randomUUID();
+  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString();
   await db.run(
-    'INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)',
-    [token, user.id, new Date().toISOString()],
+    'INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
+    [token, user.id, new Date().toISOString(), expiresAt],
   );
-  res.json({ token, user: publicUser(user) });
+  setSessionCookie(res, token);
+  res.json({ token, expiresAt, user: publicUser(user) });
 });
 
 app.post('/api/auth/change-password', auth, async (req: AuthedRequest, res) => {
@@ -888,6 +999,7 @@ app.post('/api/auth/logout', auth, async (req: AuthedRequest, res) => {
     req.sessionToken!,
     req.userId!,
   ]);
+  clearSessionCookie(res);
   res.json({ ok: true });
 });
 
@@ -975,6 +1087,76 @@ app.post('/api/profile', auth, async (req: AuthedRequest, res) => {
 app.get('/api/bootstrap', auth, async (req: AuthedRequest, res) => {
   await maybeEvaluatePolls();
   res.json(await getBootstrap(req.userId!));
+});
+
+app.get('/api/push/config', auth, async (req: AuthedRequest, res) => {
+  const supported = configureWebPush();
+  const row = supported
+    ? await db.get<{ count: number | string }>(
+      'SELECT COUNT(*) count FROM web_push_subscriptions WHERE user_id=? AND poll_enabled=?',
+      [req.userId!, db.kind === 'postgres' ? true : 1],
+    )
+    : undefined;
+  res.json({
+    supported,
+    publicKey: supported ? process.env.VAPID_PUBLIC_KEY : null,
+    subscribed: Number(row?.count || 0) > 0,
+  });
+});
+
+app.post('/api/push/subscribe', auth, async (req: AuthedRequest, res) => {
+  if (!configureWebPush()) {
+    res.status(503).json({ error: 'Web push is not configured on this deployment.' });
+    return;
+  }
+  const subscription = req.body?.subscription;
+  const endpoint = String(subscription?.endpoint || '').trim();
+  const p256dh = String(subscription?.keys?.p256dh || '').trim();
+  const authKey = String(subscription?.keys?.auth || '').trim();
+  if (
+    !endpoint.startsWith('https://')
+    || endpoint.length > 4096
+    || !p256dh
+    || p256dh.length > 512
+    || !authKey
+    || authKey.length > 256
+  ) {
+    res.status(400).json({ error: 'The browser returned an invalid push subscription.' });
+    return;
+  }
+  const now = new Date().toISOString();
+  await db.run(
+    `INSERT INTO web_push_subscriptions
+      (id,user_id,endpoint,p256dh,auth,poll_enabled,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?)
+     ON CONFLICT(endpoint) DO UPDATE SET
+       user_id=excluded.user_id,p256dh=excluded.p256dh,auth=excluded.auth,
+       poll_enabled=excluded.poll_enabled,updated_at=excluded.updated_at`,
+    [
+      randomUUID(),
+      req.userId!,
+      endpoint,
+      p256dh,
+      authKey,
+      db.kind === 'postgres' ? true : 1,
+      now,
+      now,
+    ],
+  );
+  res.status(201).json({ ok: true });
+});
+
+app.delete('/api/push/subscribe', auth, async (req: AuthedRequest, res) => {
+  const endpoint = String(req.body?.endpoint || '').trim();
+  if (!endpoint) {
+    res.status(400).json({ error: 'A push subscription endpoint is required.' });
+    return;
+  }
+  await db.run(
+    'DELETE FROM web_push_subscriptions WHERE user_id=? AND endpoint=?',
+    [req.userId!, endpoint],
+  );
+  res.json({ ok: true });
 });
 
 app.get('/api/sync', auth, async (req: AuthedRequest, res) => {
@@ -1369,6 +1551,11 @@ app.post('/api/group-invites/:id/respond', auth, async (req: AuthedRequest, res)
 
 app.post('/api/payments/lend', auth, async (req: AuthedRequest, res) => {
   const { borrowerId, amount, purpose } = req.body ?? {};
+  const mutationId = clientMutationId(req.body?.clientRequestId);
+  if (!mutationId) {
+    res.status(400).json({ error: 'The payment request identifier is invalid.' });
+    return;
+  }
   if (!borrowerId || Number(amount) <= 0 || !String(purpose || '').trim()) {
     res.status(400).json({ error: 'Person, amount, and purpose are required.' });
     return;
@@ -1377,36 +1564,52 @@ app.post('/api/payments/lend', auth, async (req: AuthedRequest, res) => {
     res.status(403).json({ error: 'You can only request money from a connection.' });
     return;
   }
-  const requestId = randomUUID();
-  await db.run(
-    `INSERT INTO payment_requests
-      (id, initiator_id, payer_id, payee_id, amount, purpose, note, kind, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'lend', 'pending', ?)`,
-    [
-      requestId,
-      req.userId!,
-      String(borrowerId),
-      req.userId!,
-      Math.round(Number(amount)),
-      String(purpose).trim(),
-      null,
-      new Date().toISOString(),
-    ],
-  );
   const sender = await db.get<any>('SELECT name FROM users WHERE id=?', [req.userId!]);
-  await addNotification(
-    String(borrowerId),
-    'payment_request',
-    `Request from ${sender?.name || 'A connection'}`,
-    `NPR ${Math.round(Number(amount))} · ${String(purpose).trim()}`,
-    requestId,
-  );
-  await touchUsers([req.userId!, String(borrowerId)]);
-  res.status(201).json(await getBootstrap(req.userId!));
+  const created = await db.transaction(async (tx) => {
+    const claimed = await tx.run(
+      `INSERT INTO payment_mutations (user_id,client_request_id,kind,created_at)
+       VALUES (?,?,'lend',?) ON CONFLICT(user_id,client_request_id) DO NOTHING`,
+      [req.userId!, mutationId, new Date().toISOString()],
+    );
+    if (!claimed.changes) return false;
+    const requestId = randomUUID();
+    await tx.run(
+      `INSERT INTO payment_requests
+        (id, initiator_id, payer_id, payee_id, amount, purpose, note, kind, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'lend', 'pending', ?)`,
+      [
+        requestId,
+        req.userId!,
+        String(borrowerId),
+        req.userId!,
+        Math.round(Number(amount)),
+        String(purpose).trim(),
+        null,
+        new Date().toISOString(),
+      ],
+    );
+    await addNotification(
+      String(borrowerId),
+      'payment_request',
+      `Request from ${sender?.name || 'A connection'}`,
+      `NPR ${Math.round(Number(amount))} · ${String(purpose).trim()}`,
+      requestId,
+      null,
+      tx,
+    );
+    await touchUsers([req.userId!, String(borrowerId)], tx);
+    return true;
+  });
+  res.status(created ? 201 : 200).json(await getBootstrap(req.userId!));
 });
 
 app.post('/api/payments/split', auth, async (req: AuthedRequest, res) => {
   const { purpose, totalAmount, participants, mode } = req.body ?? {};
+  const mutationId = clientMutationId(req.body?.clientRequestId);
+  if (!mutationId) {
+    res.status(400).json({ error: 'The payment request identifier is invalid.' });
+    return;
+  }
   const entries = Array.isArray(participants) ? participants : [];
   if (mode !== 'equal' && mode !== 'manual') {
     res.status(400).json({ error: 'Choose equal or manual split.' });
@@ -1460,7 +1663,13 @@ app.post('/api/payments/split', auth, async (req: AuthedRequest, res) => {
   }));
   const breakdownJson = JSON.stringify(breakdown);
   const senderName = participantNames.get(req.userId!) || 'A connection';
-  await db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
+    const claimed = await tx.run(
+      `INSERT INTO payment_mutations (user_id,client_request_id,kind,created_at)
+       VALUES (?,?,'split',?) ON CONFLICT(user_id,client_request_id) DO NOTHING`,
+      [req.userId!, mutationId, new Date().toISOString()],
+    );
+    if (!claimed.changes) return false;
     for (const share of breakdown) {
       // The initiator participates in the expense calculation, but their own
       // share is not a debt and therefore must never become a ledger row.
@@ -1498,8 +1707,9 @@ app.post('/api/payments/split', auth, async (req: AuthedRequest, res) => {
       );
     }
     await touchUsers(participantIds, tx);
+    return true;
   });
-  res.status(201).json(await getBootstrap(req.userId!));
+  res.status(created ? 201 : 200).json(await getBootstrap(req.userId!));
 });
 
 app.post('/api/payments/incoming/opened', auth, async (req: AuthedRequest, res) => {

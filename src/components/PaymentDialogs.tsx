@@ -4,6 +4,7 @@ import { Modal } from './Modal';
 import { Avatar } from './Avatar';
 import { displayName, money, relativeTime } from '../lib/format';
 import { mutate, request } from '../lib/api';
+import { submitPaymentRequest } from '../lib/offlineQueue';
 import { isNativeAndroid, nativeBiometricConfirm } from '../lib/native';
 import type { Bootstrap, Payment, User } from '../types';
 
@@ -119,9 +120,9 @@ export function PendingModal({ mode, data, onClose, onData, notify }: {
   </>;
 }
 
-export function LendModal({ person, onClose, onData, notify }: { person:User; onClose:()=>void; onData:(d:Bootstrap)=>void; notify:(s:string)=>void }) {
+export function LendModal({ person, userId, online, onClose, onData, notify }: { person:User; userId:string; online:boolean; onClose:()=>void; onData:(d:Bootstrap)=>void; notify:(s:string)=>void }) {
   const [amount,setAmount]=useState(''); const [purpose,setPurpose]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
-  async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{const d=await mutate('/payments/lend',{borrowerId:person.id,amount:Number(amount),purpose});onData(d);notify(`Request sent to ${person.name.split(' ')[0]}`);onClose();}catch(err){setError(err instanceof Error?err.message:'Could not send request.');}finally{setBusy(false)}}
+  async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{const result=await submitPaymentRequest({userId,kind:'lend',path:'/payments/lend',payload:{borrowerId:person.id,amount:Number(amount),purpose},label:`Individual · ${displayName(person.name)}`,amount:Number(amount),purpose,online});if(result.data)onData(result.data);notify(result.queued?'Saved offline · will send automatically':`Request sent to ${person.name.split(' ')[0]}`);onClose();}catch(err){setError(err instanceof Error?err.message:'Could not send request.');}finally{setBusy(false)}}
   return <Modal title="Record money lent" subtitle="They’ll verify it before it reaches your ledger" onClose={onClose}>
     <div className="person-pill"><Avatar name={person.name} color={person.avatarColor}/><span>Lent to<strong>{displayName(person.name)}</strong></span></div>
     <form className="stack-form" onSubmit={submit}>
@@ -133,7 +134,7 @@ export function LendModal({ person, onClose, onData, notify }: { person:User; on
   </Modal>;
 }
 
-export function SplitModal({ data, onClose, onData, notify }:{data:Bootstrap;onClose:()=>void;onData:(d:Bootstrap)=>void;notify:(s:string)=>void}){
+export function SplitModal({ data, online, onClose, onData, notify }:{data:Bootstrap;online:boolean;onClose:()=>void;onData:(d:Bootstrap)=>void;notify:(s:string)=>void}){
   const [purpose,setPurpose]=useState(''); const [total,setTotal]=useState(''); const [mode,setMode]=useState<'equal'|'manual'>('equal');
   const [selected,setSelected]=useState<string[]>([data.user.id]); const [manual,setManual]=useState<Record<string,string>>({});
   const [busy,setBusy]=useState(false); const [error,setError]=useState('');
@@ -143,7 +144,7 @@ export function SplitModal({ data, onClose, onData, notify }:{data:Bootstrap;onC
   function toggle(id:string){if(id===data.user.id)return;setSelected(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);}
   async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{
     const participants=selectedPeople.map(p=>({userId:p.id,amount:mode==='manual'?Number(manual[p.id]||0):share}));
-    const d=await mutate('/payments/split',{purpose,totalAmount:Number(total),participants,mode});onData(d);notify('Group payment request sent');onClose();
+    const result=await submitPaymentRequest({userId:data.user.id,kind:'split',path:'/payments/split',payload:{purpose,totalAmount:Number(total),participants,mode},label:`Group · ${selected.length} people`,amount:Number(total),purpose,online});if(result.data)onData(result.data);notify(result.queued?'Saved offline · will send automatically':'Group payment request sent');onClose();
   }catch(err){setError(err instanceof Error?err.message:'Could not create split.');}finally{setBusy(false)}}
   return <Modal title="Split a payment" subtitle="Everyone confirms their own share" onClose={onClose} wide>
     <form className="stack-form" onSubmit={submit}>

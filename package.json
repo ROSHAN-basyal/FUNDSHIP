@@ -19,6 +19,7 @@
     "start": "NODE_ENV=production tsx server/index.ts",
     "user:create": "tsx scripts/create-user.ts",
     "db:migrate": "tsx scripts/apply-migration.ts",
+    "push:generate-keys": "tsx scripts/generate-vapid.ts",
     "ci": "npm run check && npm run smoke && npm run build"
   },
   "engines": {
@@ -37,7 +38,8 @@
     "lucide-react": "^0.468.0",
     "postgres": "^3.4.9",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.2",
@@ -46,6 +48,7 @@
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "tsx": "^4.19.2",

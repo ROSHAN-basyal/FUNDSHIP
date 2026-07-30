@@ -3,28 +3,32 @@ import { ArrowDownLeft, ArrowUpRight, ChevronRight, Clock3, Plus, Send, Sparkles
 import { Avatar } from './Avatar';
 import { displayName, money } from '../lib/format';
 import { LendModal, PendingModal, PersonPickerModal, SplitModal, TransactionHistoryModal } from './PaymentDialogs';
+import { OfflineQueuePanel } from './OfflineQueuePanel';
 import type { Bootstrap, User } from '../types';
 import { mutate } from '../lib/api';
 
-export function HomePage({ data, onData, notify }: { data:Bootstrap; onData:(d:Bootstrap)=>void; notify:(s:string)=>void }) {
+export function HomePage({ data, online, onData, notify }: { data:Bootstrap; online:boolean; onData:(d:Bootstrap)=>void; notify:(s:string)=>void }) {
   const [pendingMode,setPendingMode]=useState<'incoming'|'outgoing'|null>(null);
   const [lendPerson,setLendPerson]=useState<User|null>(null);
   const [pickPerson,setPickPerson]=useState(false);
   const [historyPerson,setHistoryPerson]=useState<User|null>(null);
   const [splitOpen,setSplitOpen]=useState(false);
   const peopleById = new Map(data.people.map(p=>[p.id,p]));
-  function openIncoming(){setPendingMode('incoming');if(data.payments.hasUnseenIncoming)void mutate('/payments/incoming/opened').then(onData).catch(()=>undefined)}
+  function requireOnline(action:()=>void){if(!online){notify('This feature requires an internet connection.');return}action()}
+  function openIncoming(){requireOnline(()=>{setPendingMode('incoming');if(data.payments.hasUnseenIncoming)void mutate('/payments/incoming/opened').then(onData).catch(()=>undefined)})}
 
   return <>
     <div className="page-scroll home-page">
       <section className="home-hero">
         <div><h1>Home</h1></div>
+        {!online&&<div className="offline-mode-banner"><strong>Offline mode</strong><span>You can create payment requests. Everything else needs internet.</span></div>}
         <div className="pending-actions">
           <button className={data.payments.hasUnseenIncoming?'has-new-request':''} onClick={openIncoming}><span className="pending-icon incoming"><ArrowDownLeft size={19}/>{data.payments.hasUnseenIncoming&&<i/>}</span><span><small>Incoming</small><strong>{data.payments.incoming.length} request{data.payments.incoming.length===1?'':'s'}</strong></span><ChevronRight size={18}/></button>
-          <button onClick={()=>setPendingMode('outgoing')}><span className="pending-icon outgoing"><ArrowUpRight size={19}/>{data.payments.outgoing.length>0&&<i>{data.payments.outgoing.length}</i>}</span><span><small>Outgoing</small><strong>{data.payments.outgoing.length} pending</strong></span><ChevronRight size={18}/></button>
+          <button onClick={()=>requireOnline(()=>setPendingMode('outgoing'))}><span className="pending-icon outgoing"><ArrowUpRight size={19}/>{data.payments.outgoing.length>0&&<i>{data.payments.outgoing.length}</i>}</span><span><small>Outgoing</small><strong>{data.payments.outgoing.length} pending</strong></span><ChevronRight size={18}/></button>
         </div>
       </section>
 
+      <OfflineQueuePanel userId={data.user.id} online={online}/>
       <div className="payment-cta-row">
         <button className="split-cta individual-cta" onClick={()=>setPickPerson(true)}><span className="split-cta-icon"><UserRoundPlus size={23}/></span><strong>Individual payment request</strong><span className="cta-arrow"><Send size={19}/></span></button>
         <button className="split-cta" onClick={()=>setSplitOpen(true)}><span className="split-cta-icon"><Users size={23}/></span><strong>Group payment request</strong><span className="cta-arrow"><Send size={19}/></span></button>
@@ -37,7 +41,7 @@ export function HomePage({ data, onData, notify }: { data:Bootstrap; onData:(d:B
             const person=peopleById.get(item.personId) || {id:item.personId,name:item.name,avatarColor:item.avatarColor,credentialId:''};
             const positive=item.amount>0;const settled=item.amount===0;
             return <article className="ledger-row" key={item.personId}>
-              <button className="ledger-person-button" onClick={()=>setHistoryPerson(person)} aria-label={`View transactions with ${item.name}`}><Avatar name={item.name} color={item.avatarColor} size="lg"/><span className="ledger-person"><strong>{displayName(item.name)}</strong><small>{settled?'settled · view history':positive?'owes you':'you owe them'}</small></span></button>
+              <button className="ledger-person-button" onClick={()=>requireOnline(()=>setHistoryPerson(person))} aria-label={`View transactions with ${item.name}`}><Avatar name={item.name} color={item.avatarColor} size="lg"/><span className="ledger-person"><strong>{displayName(item.name)}</strong><small>{settled?'settled · view history':positive?'owes you':'you owe them'}</small></span></button>
               <strong className={`ledger-amount ${settled?'':positive?'green':'red'}`}>{settled?'':positive?'+':'−'} {money(Math.abs(item.amount))}</strong>
               <button className="add-lend" onClick={()=>setLendPerson(person)} aria-label={`Record money lent to ${item.name}`}><Plus size={20}/></button>
             </article>;
@@ -49,9 +53,9 @@ export function HomePage({ data, onData, notify }: { data:Bootstrap; onData:(d:B
       <p className="retention-note">Payment records remain in your ledger until settled.</p>
     </div>
     {pendingMode&&<PendingModal mode={pendingMode} data={data} onClose={()=>setPendingMode(null)} onData={onData} notify={notify}/>}
-    {lendPerson&&<LendModal person={lendPerson} onClose={()=>setLendPerson(null)} onData={onData} notify={notify}/>}
+    {lendPerson&&<LendModal person={lendPerson} userId={data.user.id} online={online} onClose={()=>setLendPerson(null)} onData={onData} notify={notify}/>}
     {pickPerson&&<PersonPickerModal people={data.people} onClose={()=>setPickPerson(false)} onSelect={person=>{setPickPerson(false);setLendPerson(person)}}/>}
     {historyPerson&&<TransactionHistoryModal person={historyPerson} data={data} onClose={()=>setHistoryPerson(null)}/>}
-    {splitOpen&&<SplitModal data={data} onClose={()=>setSplitOpen(false)} onData={onData} notify={notify}/>}
+    {splitOpen&&<SplitModal data={data} online={online} onClose={()=>setSplitOpen(false)} onData={onData} notify={notify}/>}
   </>;
 }

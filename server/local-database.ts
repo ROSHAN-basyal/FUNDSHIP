@@ -13,7 +13,8 @@ const sqliteSchema = `
     profile_photo TEXT
   );
   CREATE TABLE IF NOT EXISTS sessions (
-    token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL
+    token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL,
+    expires_at TEXT
   );
   CREATE TABLE IF NOT EXISTS groups (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, emoji TEXT NOT NULL, accent TEXT NOT NULL,
@@ -50,6 +51,16 @@ const sqliteSchema = `
     note TEXT, kind TEXT NOT NULL, split_id TEXT, split_count INTEGER, total_amount INTEGER,
     split_mode TEXT, split_breakdown_json TEXT, payer_seen_at TEXT,
     status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, verified_at TEXT, discarded_at TEXT
+  );
+  CREATE TABLE IF NOT EXISTS payment_mutations (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    client_request_id TEXT NOT NULL, kind TEXT NOT NULL, created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, client_request_id)
+  );
+  CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
+    poll_enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS connections (
     user_a TEXT NOT NULL REFERENCES users(id), user_b TEXT NOT NULL REFERENCES users(id),
@@ -113,6 +124,7 @@ export async function initializeLocalDatabase(db: AppDatabase) {
   await ensureColumn(db, 'payment_requests', 'split_breakdown_json', 'TEXT');
   await ensureColumn(db, 'payment_requests', 'payer_seen_at', 'TEXT');
   await ensureColumn(db, 'payment_requests', 'discarded_at', 'TEXT');
+  await ensureColumn(db, 'sessions', 'expires_at', 'TEXT');
   const includeDemoGroups = process.env.SAJILO_SEED_DEMO_GROUPS === 'true';
 
   const userCount = await db.get<{ count: number }>('SELECT COUNT(*) count FROM users');

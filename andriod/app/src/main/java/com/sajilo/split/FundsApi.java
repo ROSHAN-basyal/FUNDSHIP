@@ -19,6 +19,9 @@ final class FundsApi {
     interface Callback {
         void success(JSONObject data);
         void error(String message);
+        default void error(String message, int status, boolean networkFailure) {
+            error(message);
+        }
     }
 
     private static final String ROOT = BuildConfig.FUNDSHIP_API_URL;
@@ -29,6 +32,7 @@ final class FundsApi {
     void setToken(String value) { token = value == null ? "" : value; }
     String token() { return token; }
     void clearToken() { token = ""; }
+    void shutdown() { executor.shutdownNow(); }
 
     void login(String credentialId, String password, Callback callback) {
         JSONObject body = new JSONObject();
@@ -71,11 +75,11 @@ final class FundsApi {
                 if (status >= 200 && status < 300) main.post(() -> callback.success(response));
                 else {
                     String message = response.optString("error", "Request failed (" + status + ")");
-                    main.post(() -> callback.error(message));
+                    main.post(() -> callback.error(message, status, false));
                 }
             } catch (Exception exception) {
                 String message = exception.getMessage() == null ? "Failed to reach the FUNDSHIP server." : exception.getMessage();
-                main.post(() -> callback.error(message));
+                main.post(() -> callback.error(message, 0, true));
             } finally { if (connection != null) connection.disconnect(); }
         });
     }

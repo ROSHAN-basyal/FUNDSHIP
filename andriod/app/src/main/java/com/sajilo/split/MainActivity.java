@@ -9,6 +9,9 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.Intent;
 import android.net.Uri;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
@@ -60,6 +63,7 @@ import java.util.Date;
 import java.util.TimeZone;
 import java.text.SimpleDateFormat;
 import java.util.concurrent.Executor;
+import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
     private static final String PAYMENT_PREFS = "fundship_payment_handoff";
@@ -69,6 +73,7 @@ public class MainActivity extends AppCompatActivity {
     private final FundsApi api = new FundsApi();
     private SecureSessionStore sessions;
     private SnapshotStore snapshots;
+    private OfflinePaymentQueue offlineQueue;
     private FrameLayout root;
     private JSONObject data;
     private ViewPager2 pager;
@@ -80,7 +85,10 @@ public class MainActivity extends AppCompatActivity {
     private final Handler syncHandler=new Handler(Looper.getMainLooper());
     private boolean syncInFlight;
     private boolean foreground;
-    private final Runnable foregroundSync=new Runnable(){@Override public void run(){syncNow(false);if(foreground)syncHandler.postDelayed(this,6000);}};
+    private boolean online;
+    private ConnectivityManager connectivityManager;
+    private ConnectivityManager.NetworkCallback connectivityCallback;
+    private final Runnable foregroundSync=new Runnable(){@Override public void run(){consumeOfflineSyncResult();syncNow(false);if(foreground)syncHandler.postDelayed(this,6000);}};
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         SplashScreen.installSplashScreen(this);
@@ -89,14 +97,16 @@ public class MainActivity extends AppCompatActivity {
         WindowInsetsControllerCompat bars=WindowCompat.getInsetsController(window,window.getDecorView());bars.setAppearanceLightStatusBars(true);bars.setAppearanceLightNavigationBars(true);
         setContentView(R.layout.activity_main);root=findViewById(R.id.nativeRoot);root.setBackgroundColor(NativeUi.BG);
         ViewCompat.setOnApplyWindowInsetsListener(root,(view,insets)->{Insets system=insets.getInsets(WindowInsetsCompat.Type.systemBars());Insets ime=insets.getInsets(WindowInsetsCompat.Type.ime());int bottom=Math.max(system.bottom,ime.bottom);view.setPadding(0,system.top,0,bottom);if(insets.isVisible(WindowInsetsCompat.Type.ime()))view.post(()->NativeUi.revealCurrentField(view));return insets;});
-        ViewCompat.requestApplyInsets(root);sessions=new SecureSessionStore(this);snapshots=new SnapshotStore(this);
+        ViewCompat.requestApplyInsets(root);sessions=new SecureSessionStore(this);snapshots=new SnapshotStore(this);offlineQueue=new OfflinePaymentQueue(this);online=NetworkState.isOnline(this);observeConnectivity();
         PollNotificationManager.createChannel(this);PaymentNotificationManager.createChannel(this);
-        requestNotificationPermission();if(sessions.exists())restoreStoredSession();else showLogin();
+        requestNotificationPermission();if(sessions.exists()){OfflinePaymentQueue.schedule(this,0);restoreStoredSession();}else showLogin();
     }
 
-    @Override protected void onResume(){super.onResume();foreground=true;if(!api.token().isEmpty()){consumePollActions();syncHandler.removeCallbacks(foregroundSync);syncHandler.post(foregroundSync);}}
+    @Override protected void onResume(){super.onResume();foreground=true;online=NetworkState.isOnline(this);consumeOfflineSyncResult();if(!api.token().isEmpty()){consumePollActions();syncHandler.removeCallbacks(foregroundSync);if(online)syncHandler.post(foregroundSync);}}
 
     @Override protected void onPause(){foreground=false;syncHandler.removeCallbacks(foregroundSync);super.onPause();}
+
+    @Override protected void onDestroy(){if(connectivityManager!=null&&connectivityCallback!=null){try{connectivityManager.unregisterNetworkCallback(connectivityCallback);}catch(Exception ignored){}}super.onDestroy();}
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
@@ -106,6 +116,11 @@ public class MainActivity extends AppCompatActivity {
 
     FundsApi api(){return api;}
     JSONObject data(){return data;}
+    boolean isOnline(){return online&&NetworkState.isOnline(this);}
+    boolean requireOnline(){if(isOnline())return true;toast("This feature requires an internet connection.");return false;}
+    JSONArray offlinePayments(){if(data==null||data.optJSONObject("user")==null)return new JSONArray();return offlineQueue.forUser(data.optJSONObject("user").optString("id"));}
+    void retryOfflinePayment(String id){offlineQueue.update(id,"pending",0,null,0);OfflinePaymentQueue.schedule(this,0);toast("Request queued for retry");if(data!=null)buildShell();}
+    private void consumeOfflineSyncResult(){int synced=offlineQueue==null?0:offlineQueue.consumeSyncedCount();if(synced>0){toast(synced+" offline request"+(synced==1?"":"s")+" sent");if(data!=null)buildShell();}}
     void acceptBackgroundSnapshot(JSONObject response){JSONObject snapshot=extractSnapshot(response);if(snapshot==null)return;data=snapshot;snapshots.save(snapshot);updateBell();}
     void toast(String value){Toast.makeText(this,value,Toast.LENGTH_SHORT).show();}
     void refresh(){syncNow(true);}
@@ -150,9 +165,10 @@ public class MainActivity extends AppCompatActivity {
         snapshots.save(data);
         buildShell();
     }
-    private void signOut(){Runnable finish=()->{api.clearToken();sessions.clear();snapshots.clear();data=null;showLogin();};api.post("/auth/logout",new JSONObject(),new FundsApi.Callback(){public void success(JSONObject ignored){finish.run();}public void error(String ignored){finish.run();}});}
+    private void signOut(){if(!requireOnline())return;Runnable finish=()->{api.clearToken();sessions.clear();snapshots.clear();data=null;showLogin();};api.post("/auth/logout",new JSONObject(),new FundsApi.Callback(){public void success(JSONObject ignored){finish.run();}public void error(String ignored){finish.run();}});}
 
     void payPerson(JSONObject person){
+        if(!requireOnline())return;
         String number=person.optString("phone").replaceAll("\\s+","");
         if(!number.matches("^9\\d{9}$")){toast(NativeUi.displayName(person.optString("name","This user"))+" has not added a valid payment number.");return;}
         Runnable handoff=()->copyAndOpenPaymentApp(number,person.optString("name","receiver"));
@@ -172,6 +188,37 @@ public class MainActivity extends AppCompatActivity {
         try{startActivity(launch);toast("Payment number copied for "+NativeUi.displayName(receiver));}
         catch(Exception ignored){clearPaymentApp();choosePaymentApp(()->copyAndOpenPaymentApp(number,receiver));}
     }
+
+    void submitPayment(String path,String kind,JSONObject body,String label,double amount,String purpose,String successMessage){
+        if(data==null||data.optJSONObject("user")==null)return;
+        try{if(body.optString("clientRequestId").isEmpty())body.put("clientRequestId",UUID.randomUUID().toString());}catch(Exception ignored){}
+        String userId=data.optJSONObject("user").optString("id");
+        Runnable queueRequest=()->{
+            offlineQueue.enqueue(userId,kind,path,body,label,amount,purpose);
+            OfflinePaymentQueue.schedule(this,0);
+            toast("Saved offline · will send automatically");
+            if(data!=null)buildShell();
+        };
+        if(!isOnline()){queueRequest.run();return;}
+        api.post(path,body,new FundsApi.Callback(){
+            public void success(JSONObject response){JSONObject snapshot=extractSnapshot(response);if(snapshot!=null)applySnapshot(snapshot,true);else syncNow(true);toast(successMessage);}
+            public void error(String message){toast(message);}
+            public void error(String message,int status,boolean networkFailure){if(networkFailure){online=false;queueRequest.run();}else toast(message);}
+        });
+    }
+
+    private void observeConnectivity(){
+        connectivityManager=(ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);
+        if(connectivityManager==null)return;
+        connectivityCallback=new ConnectivityManager.NetworkCallback(){
+            @Override public void onAvailable(@NonNull Network network){networkChanged();}
+            @Override public void onLost(@NonNull Network network){networkChanged();}
+            @Override public void onCapabilitiesChanged(@NonNull Network network,@NonNull NetworkCapabilities capabilities){networkChanged();}
+        };
+        try{connectivityManager.registerDefaultNetworkCallback(connectivityCallback);}catch(Exception ignored){}
+    }
+
+    private void networkChanged(){runOnUiThread(()->{boolean next=NetworkState.isOnline(this);if(next==online)return;online=next;if(!online&&pager!=null){currentPage=0;pager.setCurrentItem(0,false);}if(pager!=null)pager.setUserInputEnabled(online);if(data!=null)buildShell();if(online&&!api.token().isEmpty()){OfflinePaymentQueue.schedule(this,0);syncNow(true);}});}
 
     private boolean hasPaymentApp(){
         android.content.SharedPreferences prefs=getSharedPreferences(PAYMENT_PREFS,MODE_PRIVATE);String packageName=prefs.getString(PAYMENT_PACKAGE,"");
@@ -217,7 +264,7 @@ public class MainActivity extends AppCompatActivity {
         TextView passwordLabel=NativeUi.text(this,"PASSWORD",10,NativeUi.INK_2,true);passwordLabel.setLetterSpacing(.1f);content.addView(passwordLabel,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,24)),0,13,0,0));
         EditText password=input("Password");password.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);content.addView(password,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,54)));
         TextView signIn=NativeUi.button(this,"Sign in",Color.WHITE,NativeUi.ORANGE,14);NativeUi.elevate(signIn,4);content.addView(signIn,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,55)),0,18,0,0));
-        signIn.setOnClickListener(view->{String user=id.getText().toString().trim(),pass=password.getText().toString();if(user.isEmpty()||pass.isEmpty()){toast("Enter your ID and password.");return;}setBusy(signIn,true,"Signing in…");api.login(user,pass,new FundsApi.Callback(){public void success(JSONObject response){String token=response.optString("token");api.setToken(token);JSONObject account=response.optJSONObject("user");rememberSession(token,account==null?user:account.optString("credentialId",user));loadBootstrap(true);}public void error(String message){setBusy(signIn,false,"Sign in");toast(message);}});});
+        signIn.setOnClickListener(view->{if(!requireOnline())return;String user=id.getText().toString().trim(),pass=password.getText().toString();if(user.isEmpty()||pass.isEmpty()){toast("Enter your ID and password.");return;}setBusy(signIn,true,"Signing in…");api.login(user,pass,new FundsApi.Callback(){public void success(JSONObject response){String token=response.optString("token");api.setToken(token);JSONObject account=response.optJSONObject("user");rememberSession(token,account==null?user:account.optString("credentialId",user));loadBootstrap(true);}public void error(String message){setBusy(signIn,false,"Sign in");toast(message);}});});
         TextView note=NativeUi.text(this,"Your account ID is issued by the FUNDSHIP administrator.",10,NativeUi.MUTED,false);note.setGravity(Gravity.CENTER);content.addView(note,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,42)),0,18,0,0));page.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));root.addView(page,new FrameLayout.LayoutParams(-1,-1));
     }
 
@@ -239,7 +286,7 @@ public class MainActivity extends AppCompatActivity {
     private JSONObject extractSnapshot(JSONObject response){if(response==null||!response.optBoolean("changed",response.has("user")))return null;JSONObject nested=response.optJSONObject("snapshot");return nested==null&&response.has("user")?response:nested;}
     private void applySnapshot(JSONObject snapshot,boolean rebuild){data=snapshot;snapshots.save(snapshot);JSONObject user=snapshot.optJSONObject("user");String onboarding=user==null?"":user.optString("onboardingStep");if(user!=null&&("change_password".equals(onboarding)||user.optBoolean("mustChangePassword"))){showRequiredPasswordChange();return;}if(user!=null&&("create_mpin".equals(onboarding)||!user.optBoolean("hasMpin"))){showRequiredMpinSetup();return;}if(rebuild)buildShell();deliverNotifications();updateBell();}
     private void loadBootstrap(boolean showLoading){if(showLoading)showLoading();api.bootstrap(new FundsApi.Callback(){public void success(JSONObject response){applySnapshot(response,true);ensureFullScreenPollAccess();}public void error(String message){if(message.toLowerCase(Locale.ROOT).contains("session")){api.clearToken();sessions.clear();snapshots.clear();showLogin();}else if(showLoading&&data==null){showLogin();toast("Failed to fetch: "+message);}}});}
-    private void syncNow(boolean rebuild){if(syncInFlight||api.token().isEmpty())return;syncInFlight=true;long revision=data==null?0:data.optLong("revision",0);api.sync(revision,new FundsApi.Callback(){public void success(JSONObject response){syncInFlight=false;JSONObject snapshot=extractSnapshot(response);if(snapshot!=null){applySnapshot(snapshot,rebuild||data!=null);ensureFullScreenPollAccess();}}public void error(String message){syncInFlight=false;if(message.toLowerCase(Locale.ROOT).contains("session")){api.clearToken();sessions.clear();snapshots.clear();data=null;showLogin();}}});}
+    private void syncNow(boolean rebuild){if(syncInFlight||api.token().isEmpty()||!isOnline())return;syncInFlight=true;long revision=data==null?0:data.optLong("revision",0);api.sync(revision,new FundsApi.Callback(){public void success(JSONObject response){syncInFlight=false;JSONObject snapshot=extractSnapshot(response);if(snapshot!=null){applySnapshot(snapshot,rebuild||data!=null);ensureFullScreenPollAccess();}}public void error(String message){syncInFlight=false;}public void error(String message,int status,boolean networkFailure){syncInFlight=false;if(status==401){api.clearToken();sessions.clear();snapshots.clear();data=null;showLogin();}else if(networkFailure)online=false;}});}
 
     private void showRequiredPasswordChange(){
         root.removeAllViews();root.setBackgroundColor(NativeUi.BG);WindowCompat.getInsetsController(getWindow(),getWindow().getDecorView()).setAppearanceLightStatusBars(true);
@@ -282,7 +329,7 @@ public class MainActivity extends AppCompatActivity {
     private void buildShell(){
         int selected=currentPage;root.removeAllViews();root.setBackgroundColor(NativeUi.BG);WindowCompat.getInsetsController(getWindow(),getWindow().getDecorView()).setAppearanceLightStatusBars(true);LinearLayout shell=new LinearLayout(this);shell.setOrientation(LinearLayout.VERTICAL);shell.setBackgroundColor(NativeUi.BG);
         shell.addView(buildToolbar(),new LinearLayout.LayoutParams(-1,NativeUi.dp(this,62)));
-        pager=new ViewPager2(this);pager.setOrientation(ViewPager2.ORIENTATION_HORIZONTAL);pager.setClipToPadding(false);pager.setClipChildren(true);pager.setOffscreenPageLimit(1);pageAdapter=new PageAdapter();pager.setAdapter(pageAdapter);pager.setPageTransformer((page,position)->page.setAlpha(.76f+.24f*Math.max(0f,1f-Math.abs(position))));
+        if(!isOnline())currentPage=0;pager=new ViewPager2(this);pager.setOrientation(ViewPager2.ORIENTATION_HORIZONTAL);pager.setClipToPadding(false);pager.setClipChildren(true);pager.setOffscreenPageLimit(1);pageAdapter=new PageAdapter();pager.setAdapter(pageAdapter);pager.setUserInputEnabled(isOnline());pager.setPageTransformer((page,position)->page.setAlpha(.76f+.24f*Math.max(0f,1f-Math.abs(position))));
         shell.addView(pager,new LinearLayout.LayoutParams(-1,0,1));bottomNav=new LinearLayout(this);bottomNav.setOrientation(LinearLayout.HORIZONTAL);bottomNav.setGravity(Gravity.CENTER);bottomNav.setBaselineAligned(false);bottomNav.setBackgroundColor(NativeUi.PAPER);NativeUi.elevate(bottomNav,8);shell.addView(bottomNav,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,68)));root.addView(shell,new FrameLayout.LayoutParams(-1,-1));
         pager.setCurrentItem(Math.min(selected,pageAdapter.getItemCount()-1),false);rebuildBottomNav();pager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback(){@Override public void onPageSelected(int position){currentPage=position;bottomNav.post(MainActivity.this::rebuildBottomNav);}});
     }
@@ -293,7 +340,7 @@ public class MainActivity extends AppCompatActivity {
         TextView title=NativeUi.text(this,"FUNDSHIP",18,NativeUi.INK,true);bar.addView(title,NativeUi.margins(this,new LinearLayout.LayoutParams(0,-1,1),10,0,0,0));
         int unread=0;JSONArray notifications=inboxNotifications();for(JSONObject item:NativeUi.objects(notifications))if(!item.optBoolean("read"))unread++;
         FrameLayout bell=new FrameLayout(this);bell.setClickable(true);bell.setFocusable(true);bell.setContentDescription("Open notifications");bell.setBackground(NativeUi.ripple(this,NativeUi.outlined(this,Color.WHITE,NativeUi.LINE,11)));ImageView bellIcon=NativeUi.icon(this,R.drawable.ic_bell_outline,NativeUi.INK,9);bellIcon.setClickable(false);bellIcon.setFocusable(false);bell.addView(bellIcon,new FrameLayout.LayoutParams(-1,-1));bellBadge=NativeUi.text(this,unread>0?String.valueOf(Math.min(99,unread)):"",8,Color.WHITE,true);bellBadge.setGravity(Gravity.CENTER);bellBadge.setBackground(NativeUi.shape(this,NativeUi.ORANGE,8));FrameLayout.LayoutParams badgeParams=new FrameLayout.LayoutParams(NativeUi.dp(this,16),NativeUi.dp(this,16),Gravity.END|Gravity.TOP);badgeParams.setMargins(0,-NativeUi.dp(this,2),-NativeUi.dp(this,2),0);bell.addView(bellBadge,badgeParams);bellBadge.setVisibility(unread>0?View.VISIBLE:View.GONE);bar.addView(bell,new LinearLayout.LayoutParams(NativeUi.dp(this,38),NativeUi.dp(this,38)));bell.setOnClickListener(view->showNotifications());
-        JSONObject user=data.optJSONObject("user");TextView avatar=NativeUi.avatar(this,user==null?"User":user.optString("name"),user==null?"#E7864A":user.optString("avatarColor"),34);bar.addView(avatar,NativeUi.margins(this,new LinearLayout.LayoutParams(NativeUi.dp(this,34),NativeUi.dp(this,34)),9,0,0,0));avatar.setOnClickListener(view->showProfile());
+        JSONObject user=data.optJSONObject("user");TextView avatar=NativeUi.avatar(this,user==null?"User":user.optString("name"),user==null?"#E7864A":user.optString("avatarColor"),34);bar.addView(avatar,NativeUi.margins(this,new LinearLayout.LayoutParams(NativeUi.dp(this,34),NativeUi.dp(this,34)),9,0,0,0));avatar.setOnClickListener(view->{if(requireOnline())showProfile();});
         return bar;
     }
 
@@ -338,7 +385,7 @@ public class MainActivity extends AppCompatActivity {
         int barWidth=bottomNav.getWidth();
         if(barWidth<=0)barWidth=getResources().getDisplayMetrics().widthPixels;
         bottomNav.addView(item,new LinearLayout.LayoutParams(barWidth/bottomNavSlots,NativeUi.dp(this,68)));
-        item.setOnClickListener(view->{if(page>=0)pager.setCurrentItem(page,true);else if(page==-2)createGroup();else showGroups();});
+        item.setOnClickListener(view->{if(page==0)pager.setCurrentItem(0,true);else if(!requireOnline())return;else if(page>0)pager.setCurrentItem(page,true);else if(page==-2)createGroup();else showGroups();});
     }
     private String first(String name){String[] parts=name.split(" ");return parts.length==0?name:parts[0];}
 
@@ -350,6 +397,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showNotifications(){
+        if(!requireOnline())return;
         JSONArray items=inboxNotifications();LinearLayout content=dialogList();FundshipSheet[] sheetRef=new FundshipSheet[1];if(items.length()==0){LinearLayout empty=NativeUi.sectionCard(this);empty.setGravity(Gravity.CENTER);TextView emptyTitle=NativeUi.text(this,"You’re all caught up",16,NativeUi.INK,true);emptyTitle.setGravity(Gravity.CENTER);empty.addView(emptyTitle,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,38)));TextView emptyCopy=NativeUi.text(this,"Group and connection updates will appear here.",12,NativeUi.MUTED,false);emptyCopy.setGravity(Gravity.CENTER);emptyCopy.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);empty.addView(emptyCopy,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,54)));content.addView(empty,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,122)));}
         else for(JSONObject item:NativeUi.objects(items)){
             LinearLayout row=simpleRow(iconFor(item.optString("type")),item.optString("title"),item.optString("body")+" · "+NativeUi.relative(item.optString("createdAt")));if(!item.optBoolean("read"))row.setBackground(NativeUi.outlined(this,Color.rgb(248,252,249),Color.rgb(190,218,209),12));content.addView(row,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,-2),0,0,0,8));row.setOnClickListener(v->{sheetRef[0].dismiss();openNotification(item);});
@@ -366,6 +414,7 @@ public class MainActivity extends AppCompatActivity {
     private void updateBell(){if(bellBadge==null)return;int unread=0;for(JSONObject item:NativeUi.objects(inboxNotifications()))if(!item.optBoolean("read"))unread++;bellBadge.setText(String.valueOf(Math.min(99,unread)));bellBadge.setVisibility(unread>0?View.VISIBLE:View.GONE);}
 
     void showTransactionHistory(JSONObject person){
+        if(!requireOnline())return;
         LinearLayout content=dialogList();String userId=data.optJSONObject("user").optString("id"),personId=person.optString("id");int count=0;double verifiedValue=0;
         for(JSONObject item:NativeUi.objects(data.optJSONArray("transactions"))){boolean match=(userId.equals(item.optString("payerId"))&&personId.equals(item.optString("payeeId")))||(userId.equals(item.optString("payeeId"))&&personId.equals(item.optString("payerId")));if(!match)continue;count++;boolean incoming=userId.equals(item.optString("payeeId")),discarded="discarded".equals(item.optString("status")),manual="manual".equals(item.optString("splitMode"));if(!discarded)verifiedValue+=item.optDouble("amount");LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(NativeUi.dp(this,10),NativeUi.dp(this,9),NativeUi.dp(this,10),NativeUi.dp(this,9));row.setBackground(NativeUi.outlined(this,discarded?Color.rgb(255,247,245):Color.WHITE,discarded?Color.rgb(230,188,180):NativeUi.LINE,12));LinearLayout words=new LinearLayout(this);words.setOrientation(LinearLayout.VERTICAL);words.addView(NativeUi.text(this,item.optString("purpose"),14,NativeUi.INK,true));String type=manual?"Manual split":("equal".equals(item.optString("splitMode"))?"Equal split":"Individual");words.addView(NativeUi.text(this,NativeUi.relative(item.optString("createdAt"))+" · "+(discarded?"Discarded":type),11,discarded?NativeUi.RED:NativeUi.MUTED,discarded));row.addView(words,new LinearLayout.LayoutParams(0,-2,1));if(manual){TextView info=NativeUi.button(this,"i",NativeUi.GREEN,NativeUi.GREEN_SOFT,10);info.setContentDescription("Show manual split details");row.addView(info,NativeUi.margins(this,new LinearLayout.LayoutParams(NativeUi.dp(this,34),NativeUi.dp(this,34)),5,0,8,0));info.setOnClickListener(v->showTransactionSplitBreakdown(item));}String amountText=discarded?"Discarded · "+NativeUi.money(item.optDouble("amount")):(incoming?"+ ":"− ")+NativeUi.money(item.optDouble("amount"));row.addView(NativeUi.text(this,amountText,discarded?11:14,discarded?NativeUi.MUTED:(incoming?NativeUi.GREEN:NativeUi.RED),true));content.addView(row,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,-2),0,0,0,8));}
         if(count==0){LinearLayout empty=NativeUi.sectionCard(this);empty.setGravity(Gravity.CENTER);TextView message=NativeUi.text(this,"No transaction history with this person yet.",12,NativeUi.MUTED,false);message.setGravity(Gravity.CENTER);empty.addView(message,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,72)));content.addView(empty,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,108)));}
@@ -375,6 +424,7 @@ public class MainActivity extends AppCompatActivity {
     private void showTransactionSplitBreakdown(JSONObject item){JSONArray shares=item.optJSONArray("splitBreakdown");LinearLayout content=dialogList();for(JSONObject share:NativeUi.objects(shares)){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(NativeUi.dp(this,11),NativeUi.dp(this,9),NativeUi.dp(this,11),NativeUi.dp(this,9));row.setBackground(NativeUi.outlined(this,Color.WHITE,NativeUi.LINE,11));String name=share.optString("userId").equals(data.optJSONObject("user").optString("id"))?"You":NativeUi.displayName(share.optString("name"));row.addView(NativeUi.text(this,name+(share.optBoolean("initiator")?" · initiator":""),13,NativeUi.INK,true),new LinearLayout.LayoutParams(0,NativeUi.dp(this,38),1));row.addView(NativeUi.text(this,NativeUi.money(share.optDouble("amount")),14,NativeUi.GREEN,true));content.addView(row,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,-2),0,0,0,7));}if(shares==null||shares.length()==0){LinearLayout empty=NativeUi.sectionCard(this);TextView message=NativeUi.text(this,"Detailed shares are unavailable for this older split.",12,NativeUi.MUTED,false);message.setGravity(Gravity.CENTER);empty.addView(message,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,68)));content.addView(empty,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,98)));}FundshipSheet.show(this,"Payment split","Manual split details","Total "+NativeUi.money(item.optDouble("totalAmount"))+" across "+item.optInt("splitCount")+" people.",content,null,82,null);}
 
     private void showProfile(){
+        if(!requireOnline())return;
         JSONObject user=data.optJSONObject("user");if(user==null)return;
         LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setPadding(0,0,0,NativeUi.dp(this,14));
         FundshipSheet[] sheetRef=new FundshipSheet[1];
@@ -390,6 +440,9 @@ public class MainActivity extends AppCompatActivity {
         saveNumber.setOnClickListener(v->{String clean=paymentNumber.getText().toString().replaceAll("\\D","");if(!clean.matches("^9\\d{9}$")){paymentNumber.setError("Enter a valid 10-digit mobile number");paymentNumber.requestFocus();return;}JSONObject body=new JSONObject();try{body.put("phone",clean);}catch(Exception ignored){}sheetRef[0].dismiss();api.post("/profile",body,callbackRefresh("Payment number saved"));});
 
         String chosen=paymentAppName();TextView chooseApp=NativeUi.button(this,chosen.isEmpty()?"Choose wallet or banking app":"Payment app · "+chosen,NativeUi.INK,Color.WHITE,12);chooseApp.setGravity(Gravity.CENTER_VERTICAL);chooseApp.setBackground(NativeUi.ripple(this,NativeUi.outlined(this,Color.WHITE,NativeUi.LINE,12)));content.addView(chooseApp,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,52)),0,10,0,0));TextView appHelp=NativeUi.text(this,"This preference stays on this phone. FUNDSHIP only opens the app; it never controls it.",10,NativeUi.MUTED,false);appHelp.setLineSpacing(0,1.08f);content.addView(appHelp,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,36)));chooseApp.setOnClickListener(v->{sheetRef[0].dismiss();choosePaymentApp(this::showProfile);});
+
+        content.addView(sheetSection("Poll alerts",-1),NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,38)),0,16,0,0));
+        TextView pollSettings=NativeUi.button(this,"Poll sound & notification settings",NativeUi.INK,Color.WHITE,12);pollSettings.setBackground(NativeUi.ripple(this,NativeUi.outlined(this,Color.WHITE,NativeUi.LINE,12)));content.addView(pollSettings,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,52)));TextView pollHelp=NativeUi.text(this,"Choose the poll sound, vibration, lock-screen visibility, or turn this alert channel off in Android settings.",10,NativeUi.MUTED,false);pollHelp.setLineSpacing(0,1.08f);content.addView(pollHelp,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,44)));pollSettings.setOnClickListener(v->{sheetRef[0].dismiss();startActivity(PollNotificationManager.pollNotificationSettingsIntent(this));});
 
         TextView connectionTitle=sheetSection("Connections",data.optJSONArray("connections").length());content.addView(connectionTitle,NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,38)),0,20,0,0));
         EditText id=NativeUi.input(this,"System-issued user ID",false);LinearLayout connectRow=new LinearLayout(this);connectRow.addView(id,new LinearLayout.LayoutParams(0,NativeUi.dp(this,52),1));TextView connect=NativeUi.button(this,"Connect",Color.WHITE,NativeUi.INK,12);connectRow.addView(connect,NativeUi.margins(this,new LinearLayout.LayoutParams(NativeUi.dp(this,96),NativeUi.dp(this,52)),8,0,0,0));content.addView(connectRow,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,52)));
@@ -409,6 +462,7 @@ public class MainActivity extends AppCompatActivity {
     private void submitConnectionResponse(String id,boolean accept){JSONObject body=new JSONObject();try{body.put("accept",accept);}catch(Exception ignored){}api.post("/connections/"+id.replace(":","%3A")+"/respond",body,callbackRefresh(accept?"Connection accepted":"Connection declined"));}
 
     private void showGroups(){
+        if(!requireOnline())return;
         LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setPadding(0,0,0,NativeUi.dp(this,14));
         TextView create=NativeUi.button(this,"＋  Create a new group",Color.WHITE,NativeUi.INK,14);NativeUi.elevate(create,3);content.addView(create,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,54)));
         JSONArray invites=data.optJSONArray("groupInvites");JSONArray groups=data.optJSONArray("groups");FundshipSheet[] sheetRef=new FundshipSheet[1];create.setOnClickListener(v->{sheetRef[0].dismiss();createGroup();});
@@ -419,6 +473,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void createGroup(){
+        if(!requireOnline())return;
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(0,0,0,NativeUi.dp(this,12));
         EditText name=NativeUi.input(this,"e.g. Weekend Crew",false);form.addView(NativeUi.labeled(this,"Group name",name,"Use a name everyone will recognize."),new LinearLayout.LayoutParams(-1,-2));
         form.addView(NativeUi.fieldLabel(this,"Group icon"),NativeUi.margins(this,new LinearLayout.LayoutParams(-1,NativeUi.dp(this,27)),0,18,0,0));

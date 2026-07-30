@@ -21,7 +21,15 @@ final class SecureSessionStore {
 
     SecureSessionStore(Context context) { prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE); }
 
-    boolean exists() { return !prefs.getString("ciphertext", "").isEmpty(); }
+    boolean exists() {
+        if (prefs.getString("ciphertext", "").isEmpty()) return false;
+        long expiresAt = prefs.getLong("expiresAt", 0);
+        if (expiresAt > 0 && expiresAt <= System.currentTimeMillis()) {
+            clear();
+            return false;
+        }
+        return true;
+    }
     String credentialId() { return prefs.getString("credentialId", ""); }
 
     void save(String token, String credentialId) throws Exception {
@@ -32,6 +40,7 @@ final class SecureSessionStore {
             .putString("ciphertext", Base64.encodeToString(encrypted, Base64.NO_WRAP))
             .putString("iv", Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP))
             .putString("credentialId", credentialId)
+            .putLong("expiresAt", System.currentTimeMillis() + 30L * 24 * 60 * 60 * 1000)
             .apply();
     }
 

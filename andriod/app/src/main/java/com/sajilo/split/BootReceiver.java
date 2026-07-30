@@ -13,5 +13,6 @@ public class BootReceiver extends BroadcastReceiver {
             PollPayload payload = PollNotificationManager.loadPayload(context, pollId);
             if (payload != null) PollNotificationManager.scheduleReminder(context, payload, 5);
         }
+        OfflinePaymentQueue.schedule(context, 0);
     }
 }

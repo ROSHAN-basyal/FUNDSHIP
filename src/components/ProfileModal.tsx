@@ -6,6 +6,7 @@ import { mutate, request } from '../lib/api';
 import { displayName } from '../lib/format';
 import { TransactionHistoryModal } from './PaymentDialogs';
 import type { Bootstrap, User } from '../types';
+import { WebAppControls } from './WebAppControls';
 
 function readImage(file:File,onDone:(data:string)=>void){
   const reader=new FileReader();
@@ -43,6 +44,7 @@ export function ProfileModal({data,onClose,onData,notify}:{data:Bootstrap;onClos
       <div className="profile-photo-row"><div className="photo-preview">{photo?<img src={photo} alt="Profile preview"/>:<Avatar name={data.user.name} color={data.user.avatarColor} size="xl"/>}<label><Camera size={15}/><input type="file" accept="image/*" onChange={e=>e.target.files?.[0]&&readImage(e.target.files[0],setPhoto)}/></label></div><div><strong>{data.user.name}</strong><span>{data.user.credentialId}</span></div></div>
       <label><span>Payment-linked phone number</span><input inputMode="tel" maxLength={10} value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,''))} placeholder="98XXXXXXXX"/></label>
       {error&&<div className="form-error">{error}</div>}<button className="primary-btn full" disabled={busy}><Check size={18}/>{busy?'Saving…':'Save profile'}</button>
+      <WebAppControls notify={notify}/>
     </form>:tab==='connections'?<div className="connection-panel">
       <form className="connection-form" onSubmit={sendConnection}><label><span>Connect by user ID</span><div><input value={connectionId} onChange={e=>setConnectionId(e.target.value.toUpperCase())} placeholder="e.g. NP-002"/><button disabled={busy||!connectionId.trim()}><UserPlus size={17}/> Send</button></div></label></form>
       {data.connectionRequests.filter(item=>!item.outgoing).length>0&&<section><span className="field-label"><Bell size={14}/> Requests for you</span>{data.connectionRequests.filter(item=>!item.outgoing).map(item=><article className="connection-request" key={item.id}><Avatar name={item.requester.name} color={item.requester.avatarColor}/><div><strong>{displayName(item.requester.name)}</strong><small>{item.requester.credentialId}</small></div><button onClick={()=>respondConnection(item.id,false)}><X size={15}/></button><button className="accept" onClick={()=>respondConnection(item.id,true)}><Check size={15}/></button></article>)}</section>}
