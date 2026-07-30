@@ -150,7 +150,7 @@ export async function initializeLocalDatabase(db: AppDatabase) {
           ['beta-biswasn', 'BiswasN', 'Biswash Neupane', null, hash('12345678'), null, 1, '#A779B8'],
           ['beta-madhusp', 'MadhuSP', 'Madhu Sudan Pandey', null, hash('12345678'), null, 1, '#34725A'],
           ['beta-srthkb', 'SrthkB', 'Sarthak Bhandari', null, hash('12345678'), null, 1, '#4E5FA8'],
-          ['beta-sntshn', 'SntshN', 'Santosh Neupane', null, hash('12345678'), null, 1, '#B04A38'],
+          ['beta-santosk', 'SantosK', 'Santosh Khanal', null, hash('12345678'), null, 1, '#B04A38'],
           ['beta-sujalk', 'SujalK', 'Sujal Karki', null, hash('12345678'), null, 1, '#8A4776'],
           ['beta-spndhn', 'Spndhn', 'Spandhan', null, hash('12345678'), null, 1, '#7B5A30'],
           ['beta-sulavp', 'SulavP', 'Sulav Pandey', null, hash('12345678'), null, 1, '#327461'],

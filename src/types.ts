@@ -48,7 +48,10 @@ export type Group = {
   emoji: string;
   accent: string;
   role: 'admin' | 'member';
+  membersCanInvite: boolean;
+  canInviteMembers: boolean;
   members: User[];
+  pendingInvites: (User & { inviteId:string; createdAt:string })[];
   polls: Poll[];
   messages: Message[];
 };

@@ -46,7 +46,7 @@ values
   (gen_random_uuid()::text, 'BiswasN', 'Biswash Neupane',    null, '$2b$12$Y6t5MEiagRQYFy4/RNbRfOwWY4iVJkTGNYXPCoad7CIEs9Kb7q4qC', null, true, '#A779B8', null),
   (gen_random_uuid()::text, 'MadhuSP', 'Madhu Sudan Pandey', null, '$2b$12$dTetw7VIJHGhxo6iqyUC4uDAwxVpFvwWzSahau8sya9Y8oZPR4pCy', null, true, '#34725A', null),
   (gen_random_uuid()::text, 'SrthkB',  'Sarthak Bhandari',   null, '$2b$12$Yd7owwhbE.OmnuHvBy6xPuOQCEAoL9.d1dVqXnRPBI57y12D75U7q', null, true, '#4E5FA8', null),
-  (gen_random_uuid()::text, 'SntshN',  'Santosh Neupane',    null, '$2b$12$uSF3O2phGbh0ETR3M3kt5eNYy4ZUo3PGaHh15t4PAex3cpJJWDaJK', null, true, '#B04A38', null),
+  (gen_random_uuid()::text, 'SantosK', 'Santosh Khanal',     null, '$2b$12$uSF3O2phGbh0ETR3M3kt5eNYy4ZUo3PGaHh15t4PAex3cpJJWDaJK', null, true, '#B04A38', null),
   (gen_random_uuid()::text, 'SujalK',  'Sujal Karki',        null, '$2b$12$JBbqggSqRqqRZbgeeI794u2DucPWQt/3lMZ6IUPccS4wkF27T7rkS', null, true, '#8A4776', null),
   (gen_random_uuid()::text, 'Spndhn',  'Spandhan',           null, '$2b$12$Qa70xKYd39e7CKcPEDmaiuca2urZhoDrnSb8fp2G/NB8b2obrciEG', null, true, '#7B5A30', null),
   (gen_random_uuid()::text, 'SulavP',  'Sulav Pandey',       null, '$2b$12$kWU97TgfJJ18u2yxY./yBu.YFL/gop9N.7EvHfttwGP/4x5qYuQCu', null, true, '#327461', null);

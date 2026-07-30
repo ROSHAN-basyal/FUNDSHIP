@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { BellRing, CalendarDays, Check, CheckCircle2, ChevronRight, Clock3, History, Info, Plus, Send, ShieldCheck, ThumbsDown, ThumbsUp, Trash2, Users, X } from 'lucide-react';
+import { BellRing, CalendarDays, Check, CheckCircle2, ChevronRight, Clock3, History, Info, Plus, Send, ShieldCheck, ThumbsDown, ThumbsUp, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { Avatar } from './Avatar';
 import { Modal } from './Modal';
 import { applyPollVote, mutate, rememberBootstrap, request } from '../lib/api';
@@ -15,8 +15,57 @@ function VoteDetailsModal({poll,onClose}:{poll:Poll;onClose:()=>void}) {
   </Modal>;
 }
 
-function MembersModal({group,onClose}:{group:Group;onClose:()=>void}) {
-  return <Modal title="Group Chat" subtitle={`${group.name} members`} onClose={onClose}><div className="member-list">{group.members.map(member=><article key={member.id}><Avatar name={member.name} color={member.avatarColor}/><div><strong>{displayName(member.name)}</strong><small>{member.credentialId}</small></div><span>{member.role}</span></article>)}</div></Modal>;
+function GroupManagementModal({data,group,onClose,onData,notify}:{data:Bootstrap;group:Group;onClose:()=>void;onData:(d:Bootstrap)=>void;notify:(s:string)=>void}) {
+  const [credentialId,setCredentialId]=useState('');
+  const [selected,setSelected]=useState<string[]>([]);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const pendingInvites=group.pendingInvites||[];
+  const unavailable=new Set([...group.members.map(member=>member.id),...pendingInvites.map(invite=>invite.id)]);
+  const candidates=data.connections.filter(person=>!unavailable.has(person.id));
+  const canInvite=group.canInviteMembers??group.role==='admin';
+
+  async function sendInvites(event:React.FormEvent){
+    event.preventDefault();
+    if(!credentialId.trim()&&selected.length===0){setError('Enter a user ID or choose a connection.');return}
+    setBusy(true);setError('');
+    try{
+      const next=await mutate(`/groups/${group.id}/invites`,{credentialId:credentialId.trim(),inviteeIds:selected});
+      onData(next);setCredentialId('');setSelected([]);
+      notify(selected.length+(credentialId.trim()?1:0)>1?'Invitations sent':'Invitation sent');
+    }catch(value){setError(value instanceof Error?value.message:'Could not send the invitation.')}
+    finally{setBusy(false)}
+  }
+
+  async function toggleMemberInvites(){
+    setBusy(true);setError('');
+    try{
+      const enabled=!(group.membersCanInvite??false);
+      const next=await mutate(`/groups/${group.id}/settings`,{membersCanInvite:enabled});
+      onData(next);notify(enabled?'Members can now invite others':'Invitations are now admin-only');
+    }catch(value){setError(value instanceof Error?value.message:'Could not update the group setting.')}
+    finally{setBusy(false)}
+  }
+
+  return <Modal title={`${group.emoji} ${group.name}`} subtitle={group.role==='admin'?'Invite people and manage invitation access.':'View members and invite people when admins allow it.'} onClose={onClose} wide>
+    <div className="group-management">
+      {canInvite?<form className="stack-form group-invite-form" onSubmit={sendInvites}>
+        <div className="management-heading"><span><UserPlus size={17}/></span><div><strong>Add or invite members</strong><small>Nobody joins until they accept the invitation.</small></div></div>
+        <label><span>Invite by user ID</span><input value={credentialId} onChange={event=>setCredentialId(event.target.value.toUpperCase())} placeholder="System-issued user ID" autoCapitalize="characters"/></label>
+        <div className="field-block"><span className="field-label">Or choose connections</span>
+          {candidates.length>0?<div className="invite-people group-invite-people">{candidates.map(person=><button type="button" className={selected.includes(person.id)?'selected':''} onClick={()=>setSelected(ids=>ids.includes(person.id)?ids.filter(id=>id!==person.id):[...ids,person.id])} key={person.id}><Avatar name={person.name} color={person.avatarColor} size="sm"/><span>{displayName(person.name)}</span>{selected.includes(person.id)&&<Check size={14}/>}</button>)}</div>:<p className="group-invite-empty">All your connections are already members or have pending invitations. You can still invite someone by user ID.</p>}
+        </div>
+        <button className="primary-btn full" disabled={busy||(!credentialId.trim()&&selected.length===0)}><UserPlus size={18}/>{busy?'Sending…':selected.length>1?'Send invitations':'Send invitation'}</button>
+      </form>:<div className="group-invite-locked"><ShieldCheck size={20}/><div><strong>Invitations are admin-only</strong><p>A group admin can enable invitations for all members.</p></div></div>}
+
+      {group.role==='admin'&&<button type="button" className="group-invite-setting" disabled={busy} onClick={()=>void toggleMemberInvites()}><div><strong>Members can invite others</strong><small>{group.membersCanInvite?'Any member may send group invitations.':'Only admins may send group invitations.'}</small></div><span className={group.membersCanInvite?'enabled':''}>{group.membersCanInvite?'Allowed':'Admins only'}</span></button>}
+
+      {pendingInvites.length>0&&<section className="group-management-section"><span className="field-label">Pending invitations · {pendingInvites.length}</span><div className="group-pending-list">{pendingInvites.map(invite=><article key={invite.inviteId}><Avatar name={invite.name} color={invite.avatarColor} size="sm"/><div><strong>{displayName(invite.name)}</strong><small>{invite.credentialId} · {relativeTime(invite.createdAt)}</small></div><span>Pending</span></article>)}</div></section>}
+
+      <section className="group-management-section"><span className="field-label">Members · {group.members.length}</span><div className="member-list">{group.members.map(member=><article key={member.id}><Avatar name={member.name} color={member.avatarColor}/><div><strong>{displayName(member.name)}</strong><small>{member.credentialId}</small></div><span>{member.role}</span></article>)}</div></section>
+      {error&&<div className="form-error">{error}</div>}
+    </div>
+  </Modal>;
 }
 
 function PollCard({poll,onVote,onOpenAlert,onDelete}:{poll:Poll;onVote:(id:string,choice:string)=>Promise<void>;onOpenAlert:()=>void;onDelete:()=>void}) {
@@ -73,12 +122,12 @@ export function GroupPage({data,group,userId,onData,notify}:{data:Bootstrap;grou
   async function remove(id:string){if(!window.confirm('Delete this live poll?'))return;const d=await mutate(`/polls/${id}`,undefined,'DELETE');onData(d);notify('Poll deleted')}
   async function openAlert(poll:Poll){if(isNativeAndroid){await showNativePoll(group,poll);notify('Native poll alert sent');return}setAlertPoll(poll)}
   async function send(e:React.FormEvent){e.preventDefault();if(!message.trim())return;setSending(true);try{const result=await request<{message:Message;revision:number}>(`/groups/${group.id}/messages`,{method:'POST',body:JSON.stringify({body:message})});const next=rememberBootstrap({...data,revision:result.revision,groups:data.groups.map(item=>item.id===group.id?{...item,messages:item.messages.some(existing=>existing.id===result.message.id)?item.messages:[...item.messages,result.message]}:item)});setMessage('');onData(next);setTimeout(()=>chatEnd.current?.scrollIntoView({behavior:'smooth'}),50)}finally{setSending(false)}}
-  return <><div className="page-scroll group-page"><section className="group-hero" style={{'--group-accent':group.accent} as React.CSSProperties}><div className="group-title"><span className="group-emoji">{group.emoji}</span><div><span className="eyebrow">Your group</span><h1>{group.name}</h1><p><Users size={14}/>{group.members.length} members · {group.role==='admin'?'You’re an admin':'Member'}</p></div></div><div className="group-actions"><div className="member-stack">{group.members.slice(0,4).map(member=><Avatar key={member.id} name={member.name} color={member.avatarColor} size="sm"/>)}{group.members.length>4&&<span className="member-more">+{group.members.length-4}</span>}</div><button className="poll-create-button" onClick={()=>setCreateOpen(true)}><Plus size={19}/><small>Poll</small></button></div></section>
+  return <><div className="page-scroll group-page"><section className="group-hero" style={{'--group-accent':group.accent} as React.CSSProperties}><div className="group-title"><button className="group-emoji group-logo-button" onClick={()=>setMembersOpen(true)} aria-label={`Manage ${group.name} members`} title="View and invite members">{group.emoji}</button><div><span className="eyebrow">Your group</span><h1>{group.name}</h1><p><Users size={14}/>{group.members.length} members · {group.role==='admin'?'You’re an admin':'Member'}</p></div></div><div className="group-actions"><div className="member-stack">{group.members.slice(0,4).map(member=><Avatar key={member.id} name={member.name} color={member.avatarColor} size="sm"/>)}{group.members.length>4&&<span className="member-more">+{group.members.length-4}</span>}</div><button className="poll-create-button" onClick={()=>setCreateOpen(true)}><Plus size={19}/><small>Poll</small></button></div></section>
     <div className="group-layout"><section className="poll-column"><header className="subsection-title"><h2>Active Polls</h2><button className="poll-history-button" onClick={()=>setHistoryOpen(value=>!value)}><History size={15}/> Poll history <span>{history.length}</span></button></header>
       {historyOpen&&<div className="poll-history">{history.map(poll=><article key={poll.id}><span className={`history-status ${poll.status}`}>{poll.status}</span><div><strong>{poll.title}</strong><small>{bsDateTime(poll.eventAt)} · {poll.voteDetails.length} votes</small></div><span>{poll.pollType==='options'?poll.winningOptions.map(id=>poll.options.find(option=>option.id===id)?.label||id).join(' / '):`${poll.yesCount} Yes · ${poll.noCount} No`}</span></article>)}{history.length===0&&<p>No completed polls yet.</p>}</div>}
       <div className="active-poll-list">{activePolls.map(poll=><PollCard key={poll.id} poll={poll} onVote={vote} onOpenAlert={()=>void openAlert(poll)} onDelete={()=>void remove(poll.id)}/>)}{activePolls.length===0&&<div className="empty-state panel"><CalendarDays size={32}/><strong>No active polls</strong><button className="primary-btn small" onClick={()=>setCreateOpen(true)}>Start a poll</button></div>}</div>
       {pendingPolls.length>0&&<div className="approval-list"><span className="field-label">Poll requests · {pendingPolls.length}</span>{pendingPolls.map(poll=><article key={poll.id}><div><strong>{poll.title}</strong><span>{formatBs(poll.bsDate)} · requested by {displayName(poll.creatorName)}</span></div>{group.role==='admin'?<button onClick={()=>approve(poll.id)}><Check size={15}/> Approve</button>:<span className="waiting-pill">Waiting for admin</span>}</article>)}</div>}
       <div className="poll-policy"><ShieldCheck size={19}/><div><strong>Private to this group</strong><p>Poll history is retained for 3 months. Chat is deleted after 10 days.</p></div><ChevronRight size={17}/></div></section>
       <section className="chat-column"><header className="subsection-title chat-title"><button onClick={()=>setMembersOpen(true)}>Group Chat</button></header><div className="chat-list"><div className="date-divider"><span>Last 10 days</span></div>{group.messages.map((msg,index)=>{const mine=msg.userId===userId;const showAvatar=index===0||group.messages[index-1]?.userId!==msg.userId;return <div className={`chat-message ${mine?'mine':''}`} key={msg.id}>{!mine&&showAvatar?<Avatar name={msg.name} color={msg.avatarColor} size="sm"/>:!mine?<span className="avatar-spacer"/>:null}<div>{!mine&&showAvatar&&<span className="chat-name">{displayName(msg.name)}</span>}<p>{msg.body}</p><time>{relativeTime(msg.createdAt)}</time></div></div>})}<div ref={chatEnd}/></div><form className="chat-compose" onSubmit={send}><input value={message} onChange={e=>setMessage(e.target.value)} placeholder={`Message ${group.name}`}/><button className="send-btn" disabled={sending||!message.trim()}><Send size={18}/></button></form></section>
-    </div></div>{createOpen&&<CreatePollModal group={group} onClose={()=>setCreateOpen(false)} onData={onData} notify={notify}/>} {alertPoll&&<PollAlert group={group} poll={alertPoll} onClose={()=>setAlertPoll(null)} onVote={vote}/>} {membersOpen&&<MembersModal group={group} onClose={()=>setMembersOpen(false)}/>}</>;
+    </div></div>{createOpen&&<CreatePollModal group={group} onClose={()=>setCreateOpen(false)} onData={onData} notify={notify}/>} {alertPoll&&<PollAlert group={group} poll={alertPoll} onClose={()=>setAlertPoll(null)} onVote={vote}/>} {membersOpen&&<GroupManagementModal data={data} group={group} onClose={()=>setMembersOpen(false)} onData={onData} notify={notify}/>}</>;
 }
