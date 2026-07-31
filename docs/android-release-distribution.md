@@ -67,7 +67,7 @@ Use one public bucket with these settings:
 Upload releases using immutable, versioned names such as:
 
 ```text
-FUNDSHIP-2.0-native.apk
+FUNDSHIP-2.1-native.apk
 ```
 
 Do not overwrite old version paths. Versioned objects avoid stale CDN caches and
@@ -76,7 +76,7 @@ make rollback straightforward.
 The public URL format is:
 
 ```text
-https://PROJECT_REF.supabase.co/storage/v1/object/public/app-releases/FUNDSHIP-2.0-native.apk?download=FUNDSHIP-2.0-native.apk
+https://PROJECT_REF.supabase.co/storage/v1/object/public/app-releases/FUNDSHIP-2.1-native.apk?download=FUNDSHIP-2.1-native.apk
 ```
 
 Set this complete URL as the Vercel production environment variable
