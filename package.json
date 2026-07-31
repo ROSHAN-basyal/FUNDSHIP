@@ -15,6 +15,7 @@
     "android:verify": "npm run check && npm run smoke && cd andriod && ./gradlew assembleDebug lintDebug testDebugUnitTest",
     "android:install": "adb reverse tcp:8787 tcp:8787 && adb install -r andriod/app/build/outputs/apk/debug/app-debug.apk && adb shell am start -n com.sajilo.split/.MainActivity",
     "android:install:release": "adb install -r andriod/app/build/outputs/apk/release/app-release.apk && adb shell am start -n com.sajilo.split/.MainActivity",
+    "android:release:publish": "tsx scripts/publish-android-release.ts",
     "android:open": "cap open android",
     "check": "tsc -b",
     "smoke": "tsx server/smoke.ts",

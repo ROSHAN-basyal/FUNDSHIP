@@ -25,6 +25,7 @@ final class FundshipSheet {
     private final Context context;
     private final Dialog dialog;
     private TextView primary;
+    private TextView close;
 
     private FundshipSheet(Context context) {
         this.context = context;
@@ -86,7 +87,7 @@ final class FundshipSheet {
             words.addView(description, new LinearLayout.LayoutParams(-1, -2));
         }
         header.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView close = NativeUi.button(context, "×", NativeUi.INK, Color.rgb(242, 241, 235), 13);
+        close = NativeUi.button(context, "×", NativeUi.INK, Color.rgb(242, 241, 235), 13);
         close.setTextSize(25);
         close.setContentDescription("Close");
         header.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
@@ -145,6 +146,16 @@ final class FundshipSheet {
     }
 
     void dismiss() { dialog.dismiss(); }
+
+    void setCancelable(boolean cancelable) {
+        dialog.setCancelable(cancelable);
+        dialog.setCanceledOnTouchOutside(cancelable);
+        if (close != null) close.setVisibility(cancelable ? View.VISIBLE : View.GONE);
+    }
+
+    void setOnDismiss(Runnable action) {
+        dialog.setOnDismissListener(ignored -> action.run());
+    }
 
     void setBusy(boolean busy, String busyLabel, String normalLabel) {
         if (primary == null) return;

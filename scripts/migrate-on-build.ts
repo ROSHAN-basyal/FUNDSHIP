@@ -10,5 +10,6 @@ if (productionBuild) {
     'supabase/migrations/202607300002_replace_santosh_beta_account.sql',
     'supabase/migrations/202607300003_connect_santosk.sql',
     'supabase/migrations/202607310001_android_background_push.sql',
+    'supabase/migrations/202607310002_android_update_manager.sql',
   ]);
 }

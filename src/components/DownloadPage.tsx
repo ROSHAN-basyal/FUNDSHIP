@@ -18,11 +18,11 @@ import {
 import './download-page.css';
 
 const release = {
-  version: '2.2-native',
-  versionCode: 4,
+  version: '2.3-native',
+  versionCode: 5,
   fileSize: '4.6 MB',
   minimumAndroid: 'Android 7.0+',
-  sha256: 'd3fbc241c4010f4e0a84174016895e9e1f92ea0aa1553b478fd8e7bd2204314d',
+  sha256: '19270760fd3b4977a30d31776bc5516365aff8a09ca7f489f8b7325ca6c0b011',
 };
 
 function Brand() {

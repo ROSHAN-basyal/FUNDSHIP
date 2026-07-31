@@ -87,6 +87,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean foreground;
     private boolean online;
     private boolean pushRegistrationStarted;
+    private AppUpdateManager updateManager;
     private ConnectivityManager connectivityManager;
     private ConnectivityManager.NetworkCallback connectivityCallback;
     private final Runnable foregroundSync=new Runnable(){@Override public void run(){consumeOfflineSyncResult();syncNow(false);if(foreground)syncHandler.postDelayed(this,6000);}};
@@ -101,13 +102,14 @@ public class MainActivity extends AppCompatActivity {
         ViewCompat.requestApplyInsets(root);sessions=new SecureSessionStore(this);snapshots=new SnapshotStore(this);offlineQueue=new OfflinePaymentQueue(this);online=NetworkState.isOnline(this);observeConnectivity();
         PollNotificationManager.createChannel(this);PaymentNotificationManager.createChannel(this);
         requestNotificationPermission();if(sessions.exists()){OfflinePaymentQueue.schedule(this,0);restoreStoredSession();}else showLogin();
+        updateManager=new AppUpdateManager(this,api);
     }
 
-    @Override protected void onResume(){super.onResume();foreground=true;online=NetworkState.isOnline(this);consumeOfflineSyncResult();if(!api.token().isEmpty()){consumePollActions();syncHandler.removeCallbacks(foregroundSync);if(online)syncHandler.post(foregroundSync);}}
+    @Override protected void onResume(){super.onResume();foreground=true;online=NetworkState.isOnline(this);if(updateManager!=null)updateManager.onResume();consumeOfflineSyncResult();if(!api.token().isEmpty()){consumePollActions();syncHandler.removeCallbacks(foregroundSync);if(online)syncHandler.post(foregroundSync);}}
 
-    @Override protected void onPause(){foreground=false;syncHandler.removeCallbacks(foregroundSync);super.onPause();}
+    @Override protected void onPause(){foreground=false;if(updateManager!=null)updateManager.onPause();syncHandler.removeCallbacks(foregroundSync);super.onPause();}
 
-    @Override protected void onDestroy(){if(connectivityManager!=null&&connectivityCallback!=null){try{connectivityManager.unregisterNetworkCallback(connectivityCallback);}catch(Exception ignored){}}super.onDestroy();}
+    @Override protected void onDestroy(){if(updateManager!=null)updateManager.destroy();api.shutdown();if(connectivityManager!=null&&connectivityCallback!=null){try{connectivityManager.unregisterNetworkCallback(connectivityCallback);}catch(Exception ignored){}}super.onDestroy();}
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);

@@ -29,8 +29,8 @@ android {
         applicationId "com.sajilo.split"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4
-        versionName "2.2-native"
+        versionCode 5
+        versionName "2.3-native"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "FUNDSHIP_API_URL", "\"${fundshipApiUrl}\""
         aaptOptions {
@@ -80,6 +80,7 @@ dependencies {
     implementation platform("com.google.firebase:firebase-bom:34.16.0")
     implementation "com.google.firebase:firebase-messaging"
     testImplementation "junit:junit:$junitVersion"
+    testImplementation "org.json:json:20260719"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
 }

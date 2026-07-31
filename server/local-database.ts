@@ -72,6 +72,24 @@ const sqliteSchema = `
     updated_at TEXT NOT NULL,
     UNIQUE (user_id, device_id)
   );
+  CREATE TABLE IF NOT EXISTS app_releases (
+    platform TEXT NOT NULL,
+    version_code INTEGER NOT NULL,
+    version_name TEXT NOT NULL,
+    priority TEXT NOT NULL,
+    minimum_supported_version_code INTEGER NOT NULL,
+    apk_url TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    file_size_bytes INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    release_notes TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    released_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (platform, version_code)
+  );
   CREATE TABLE IF NOT EXISTS connections (
     user_a TEXT NOT NULL REFERENCES users(id), user_b TEXT NOT NULL REFERENCES users(id),
     requester_id TEXT NOT NULL REFERENCES users(id), status TEXT NOT NULL DEFAULT 'pending',
@@ -107,6 +125,8 @@ const sqliteSchema = `
     ON android_push_tokens(user_id);
   CREATE INDEX IF NOT EXISTS android_push_tokens_session_idx
     ON android_push_tokens(session_token);
+  CREATE INDEX IF NOT EXISTS app_releases_active_latest_idx
+    ON app_releases(platform, active, version_code DESC);
 `;
 
 async function ensureColumn(db: AppDatabase, table: string, column: string, definition: string) {

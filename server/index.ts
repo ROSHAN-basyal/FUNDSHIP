@@ -904,7 +904,7 @@ app.use((req, res, next) => {
   (res as any).json = (body: unknown) => {
     if (!res.headersSent) {
       const durationMs = Number(process.hrtime.bigint() - started) / 1_000_000;
-      res.setHeader('Cache-Control', 'no-store');
+      if (!res.hasHeader('Cache-Control')) res.setHeader('Cache-Control', 'no-store');
       res.setHeader(
         'Server-Timing',
         `app;dur=${durationMs.toFixed(1)}, db;dur=${metrics.durationMs.toFixed(1)};desc="${metrics.count} queries"`,
@@ -992,6 +992,63 @@ app.get('/api/health', (_req, res) => {
     databaseRegion: databaseRegion || null,
     functionRegion: process.env.VERCEL_REGION || null,
     androidPushConfigured: androidPushConfigured(),
+  });
+});
+
+app.get('/api/app-update', async (req, res) => {
+  const platform = String(req.query.platform || '').trim().toLowerCase();
+  const rawVersionCode = String(req.query.versionCode || '').trim();
+  const currentVersionCode = Number(rawVersionCode);
+  if (
+    platform !== 'android'
+    || !/^[1-9]\d{0,9}$/.test(rawVersionCode)
+    || !Number.isSafeInteger(currentVersionCode)
+    || currentVersionCode > 2_100_000_000
+  ) {
+    res.status(400).json({ error: 'A valid Android version code is required.' });
+    return;
+  }
+  const release = await db.get<any>(
+    `SELECT platform,version_code,version_name,priority,minimum_supported_version_code,
+            apk_url,sha256,file_size_bytes,title,message,release_notes,released_at
+     FROM app_releases
+     WHERE platform=? AND active=? AND released_at<=?
+     ORDER BY version_code DESC
+     LIMIT 1`,
+    [platform, db.kind === 'postgres' ? true : 1, new Date().toISOString()],
+  );
+  res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+  if (!release) {
+    res.json({
+      platform,
+      currentVersionCode,
+      updateAvailable: false,
+      mandatory: false,
+    });
+    return;
+  }
+  const latestVersionCode = Number(release.version_code);
+  const updateAvailable = latestVersionCode > currentVersionCode;
+  const mandatory = updateAvailable && (
+    release.priority === 'mandatory'
+    || currentVersionCode < Number(release.minimum_supported_version_code)
+  );
+  res.json({
+    platform,
+    currentVersionCode,
+    latestVersionCode,
+    latestVersionName: release.version_name,
+    updateAvailable,
+    mandatory,
+    priority: release.priority,
+    minimumSupportedVersionCode: Number(release.minimum_supported_version_code),
+    apkUrl: release.apk_url,
+    sha256: release.sha256,
+    fileSizeBytes: Number(release.file_size_bytes),
+    title: release.title,
+    message: release.message,
+    releaseNotes: release.release_notes || '',
+    releasedAt: asIso(release.released_at),
   });
 });
 
