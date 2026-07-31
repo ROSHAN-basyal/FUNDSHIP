@@ -62,6 +62,16 @@ const sqliteSchema = `
     endpoint TEXT NOT NULL UNIQUE, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
     poll_enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS android_push_tokens (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_token TEXT NOT NULL REFERENCES sessions(token) ON DELETE CASCADE,
+    device_id TEXT NOT NULL,
+    app_version TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (user_id, device_id)
+  );
   CREATE TABLE IF NOT EXISTS connections (
     user_a TEXT NOT NULL REFERENCES users(id), user_b TEXT NOT NULL REFERENCES users(id),
     requester_id TEXT NOT NULL REFERENCES users(id), status TEXT NOT NULL DEFAULT 'pending',
@@ -93,6 +103,10 @@ const sqliteSchema = `
     ON connections(user_b, status, user_a);
   CREATE INDEX IF NOT EXISTS payment_requests_payee_status_idx
     ON payment_requests(payee_id, status, created_at DESC);
+  CREATE INDEX IF NOT EXISTS android_push_tokens_user_idx
+    ON android_push_tokens(user_id);
+  CREATE INDEX IF NOT EXISTS android_push_tokens_session_idx
+    ON android_push_tokens(session_token);
 `;
 
 async function ensureColumn(db: AppDatabase, table: string, column: string, definition: string) {

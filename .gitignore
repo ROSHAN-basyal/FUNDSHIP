@@ -11,3 +11,4 @@ supabase/link_with_passowrd.txt
 .env*
 andriod/keystore.properties
 andriod/*.jks
+firebase-service-account*.json

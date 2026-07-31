@@ -44,6 +44,7 @@ final class PollNotificationManager {
     private static final String ACTIVE_IDS = "active_poll_ids";
     private static final String PAYLOAD_PREFIX = "payload_";
     private static final String PENDING_ACTIONS = "pending_actions";
+    private static final String DELIVERED_IDS = "delivered_ids";
 
     private PollNotificationManager() {}
 
@@ -138,7 +139,12 @@ final class PollNotificationManager {
         if (canUseFullScreenIntent(context)) builder.setFullScreenIntent(fullScreen, true);
         Notification notification = builder.build();
         NotificationManagerCompat.from(context).notify(notificationId(payload.pollId), notification);
+        markDelivered(context, payload.pollId);
         return true;
+    }
+
+    static boolean wasDelivered(Context context, String pollId) {
+        return new HashSet<>(prefs(context).getStringSet(DELIVERED_IDS, new HashSet<>())).contains(pollId);
     }
 
     static void handleAction(Context context, PollPayload payload, String action, boolean launchApp) {
@@ -282,6 +288,14 @@ final class PollNotificationManager {
         Set<String> ids = new HashSet<>(preferences.getStringSet(ACTIVE_IDS, new HashSet<>()));
         ids.add(payload.pollId);
         preferences.edit().putString(PAYLOAD_PREFIX + payload.pollId, payload.asIntentExtra()).putStringSet(ACTIVE_IDS, ids).apply();
+    }
+
+    private static void markDelivered(Context context, String pollId) {
+        SharedPreferences preferences = prefs(context);
+        Set<String> ids = new HashSet<>(preferences.getStringSet(DELIVERED_IDS, new HashSet<>()));
+        if (ids.size() >= 256) ids.clear();
+        ids.add(pollId);
+        preferences.edit().putStringSet(DELIVERED_IDS, ids).apply();
     }
 
     private static void removePayload(Context context, String pollId) {

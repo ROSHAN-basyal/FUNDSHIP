@@ -5,6 +5,7 @@ import { compare as compareSecret, hash as hashSecret } from 'bcryptjs';
 import cors from 'cors';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import webpush from 'web-push';
+import { androidPushConfigured, sendAndroidDataPush } from './android-push.js';
 import { createDatabase, type AppDatabase } from './database.js';
 import { initializeLocalDatabase } from './local-database.js';
 
@@ -157,6 +158,64 @@ async function sendPollWebPush(
       }
     }
   }));
+}
+
+async function sendPollAndroidPush(userIds: string[], pollId: string, groupId: string) {
+  const poll = await db.get<any>(
+    `SELECT p.*,g.name group_name,g.emoji group_emoji
+     FROM polls p JOIN groups g ON g.id=p.group_id
+     WHERE p.id=? AND p.group_id=? AND p.status='open' AND p.approval_status='approved'`,
+    [pollId, groupId],
+  );
+  if (!poll) return;
+  const voteCount = await db.get<{ count: number | string }>(
+    `SELECT COUNT(*) count FROM votes
+     WHERE poll_id=? AND (?='options' OR choice='yes')`,
+    [pollId, poll.poll_type],
+  );
+  const options = pollOptions(poll)
+    .slice(0, 8)
+    .map((option) => ({ id: option.id.slice(0, 80), label: option.label.slice(0, 100) }));
+  const eventAt = new Date(String(asIso(poll.event_at)));
+  const timeLabel = Number.isFinite(eventAt.getTime())
+    ? new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kathmandu',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(eventAt)
+    : '';
+  await sendAndroidDataPush(db, userIds, {
+    kind: 'poll_open',
+    pollId,
+    groupId,
+    pollPayload: JSON.stringify({
+      pollId,
+      groupName: String(poll.group_name || 'Group'),
+      groupEmoji: String(poll.group_emoji || '👥'),
+      title: String(poll.title || 'New poll'),
+      dateLabel: String(poll.bs_date || ''),
+      bsDate: String(poll.bs_date || ''),
+      timeLabel,
+      yesCount: Number(voteCount?.count || 0),
+      minYes: Number(poll.min_yes || 1),
+      remindAfterMinutes: 120,
+      pollType: String(poll.poll_type || 'yes_no'),
+      options,
+    }),
+  }, { collapseKey: `poll:${pollId}`, ttlSeconds: 24 * 60 * 60 });
+}
+
+async function sendPaymentAndroidPush(
+  userId: string,
+  request: { id: string; senderName: string; amount: number; purpose: string },
+) {
+  await sendAndroidDataPush(db, [userId], {
+    kind: 'payment_request',
+    requestId: request.id,
+    senderName: request.senderName,
+    amount: request.amount,
+    purpose: request.purpose,
+  }, { collapseKey: `payment:${request.id}`, ttlSeconds: 7 * 24 * 60 * 60 });
 }
 
 async function verifySecret(value: string, stored: string | null | undefined) {
@@ -381,10 +440,11 @@ async function notifyGroup(
   );
   if (result.changes) await touchUsers(members.map((member) => member.user_id));
   if (result.changes && type === 'poll_open') {
-    await sendPollWebPush(
-      members.map((member) => member.user_id),
-      { title, body, pollId: entityId, groupId },
-    );
+    const userIds = members.map((member) => member.user_id);
+    await Promise.all([
+      sendPollWebPush(userIds, { title, body, pollId: entityId, groupId }),
+      sendPollAndroidPush(userIds, entityId, groupId),
+    ]);
   }
 }
 
@@ -931,6 +991,7 @@ app.get('/api/health', (_req, res) => {
     database: db.kind,
     databaseRegion: databaseRegion || null,
     functionRegion: process.env.VERCEL_REGION || null,
+    androidPushConfigured: androidPushConfigured(),
   });
 });
 
@@ -1001,6 +1062,34 @@ app.post('/api/auth/logout', auth, async (req: AuthedRequest, res) => {
   ]);
   clearSessionCookie(res);
   res.json({ ok: true });
+});
+
+app.post('/api/android/push/register', auth, async (req: AuthedRequest, res) => {
+  const token = String(req.body?.token || '').trim();
+  const deviceId = String(req.body?.deviceId || '').trim();
+  const appVersion = String(req.body?.appVersion || '').trim().slice(0, 80);
+  if (token.length < 32 || token.length > 4096) {
+    res.status(400).json({ error: 'The Android push token is invalid.' });
+    return;
+  }
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}$/.test(deviceId)) {
+    res.status(400).json({ error: 'The Android device identifier is invalid.' });
+    return;
+  }
+  const now = new Date().toISOString();
+  await db.transaction(async (tx) => {
+    await tx.run(
+      'DELETE FROM android_push_tokens WHERE token=? OR (user_id=? AND device_id=?)',
+      [token, req.userId!, deviceId],
+    );
+    await tx.run(
+      `INSERT INTO android_push_tokens
+        (token,user_id,session_token,device_id,app_version,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?)`,
+      [token, req.userId!, req.sessionToken!, deviceId, appVersion || null, now, now],
+    );
+  });
+  res.json({ ok: true, configured: androidPushConfigured() });
 });
 
 app.post('/api/auth/verify-mpin', auth, async (req: AuthedRequest, res) => {
@@ -1565,6 +1654,7 @@ app.post('/api/payments/lend', auth, async (req: AuthedRequest, res) => {
     return;
   }
   const sender = await db.get<any>('SELECT name FROM users WHERE id=?', [req.userId!]);
+  let pushRequest: { id: string; senderName: string; amount: number; purpose: string } | undefined;
   const created = await db.transaction(async (tx) => {
     const claimed = await tx.run(
       `INSERT INTO payment_mutations (user_id,client_request_id,kind,created_at)
@@ -1573,6 +1663,8 @@ app.post('/api/payments/lend', auth, async (req: AuthedRequest, res) => {
     );
     if (!claimed.changes) return false;
     const requestId = randomUUID();
+    const requestAmount = Math.round(Number(amount));
+    const requestPurpose = String(purpose).trim();
     await tx.run(
       `INSERT INTO payment_requests
         (id, initiator_id, payer_id, payee_id, amount, purpose, note, kind, status, created_at)
@@ -1582,8 +1674,8 @@ app.post('/api/payments/lend', auth, async (req: AuthedRequest, res) => {
         req.userId!,
         String(borrowerId),
         req.userId!,
-        Math.round(Number(amount)),
-        String(purpose).trim(),
+        requestAmount,
+        requestPurpose,
         null,
         new Date().toISOString(),
       ],
@@ -1592,14 +1684,21 @@ app.post('/api/payments/lend', auth, async (req: AuthedRequest, res) => {
       String(borrowerId),
       'payment_request',
       `Request from ${sender?.name || 'A connection'}`,
-      `NPR ${Math.round(Number(amount))} · ${String(purpose).trim()}`,
+      `NPR ${requestAmount} · ${requestPurpose}`,
       requestId,
       null,
       tx,
     );
+    pushRequest = {
+      id: requestId,
+      senderName: String(sender?.name || 'A connection'),
+      amount: requestAmount,
+      purpose: requestPurpose,
+    };
     await touchUsers([req.userId!, String(borrowerId)], tx);
     return true;
   });
+  if (created && pushRequest) await sendPaymentAndroidPush(String(borrowerId), pushRequest);
   res.status(created ? 201 : 200).json(await getBootstrap(req.userId!));
 });
 
@@ -1663,6 +1762,10 @@ app.post('/api/payments/split', auth, async (req: AuthedRequest, res) => {
   }));
   const breakdownJson = JSON.stringify(breakdown);
   const senderName = participantNames.get(req.userId!) || 'A connection';
+  const pushRequests: Array<{
+    userId: string;
+    request: { id: string; senderName: string; amount: number; purpose: string };
+  }> = [];
   const created = await db.transaction(async (tx) => {
     const claimed = await tx.run(
       `INSERT INTO payment_mutations (user_id,client_request_id,kind,created_at)
@@ -1705,10 +1808,22 @@ app.post('/api/payments/split', auth, async (req: AuthedRequest, res) => {
         null,
         tx,
       );
+      pushRequests.push({
+        userId: share.userId,
+        request: {
+          id: requestId,
+          senderName,
+          amount: share.amount,
+          purpose: String(purpose).trim(),
+        },
+      });
     }
     await touchUsers(participantIds, tx);
     return true;
   });
+  if (created && pushRequests.length > 0) {
+    await Promise.all(pushRequests.map((item) => sendPaymentAndroidPush(item.userId, item.request)));
+  }
   res.status(created ? 201 : 200).json(await getBootstrap(req.userId!));
 });
 

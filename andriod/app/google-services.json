@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "421819242491",
+    "project_id": "fundship-rsnb",
+    "storage_bucket": "fundship-rsnb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:421819242491:android:cf741c25ec4d7f6b28dd5e",
+        "android_client_info": {
+          "package_name": "com.sajilo.split"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCx6fqs5sYxDZeq6PD6MDXN5acrZ-ktqJo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

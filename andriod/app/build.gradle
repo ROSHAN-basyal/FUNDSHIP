@@ -29,8 +29,8 @@ android {
         applicationId "com.sajilo.split"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "2.1-native"
+        versionCode 4
+        versionName "2.2-native"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "FUNDSHIP_API_URL", "\"${fundshipApiUrl}\""
         aaptOptions {
@@ -77,6 +77,8 @@ dependencies {
     implementation "androidx.recyclerview:recyclerview:1.4.0"
     implementation "androidx.viewpager2:viewpager2:1.1.0"
     implementation "androidx.swiperefreshlayout:swiperefreshlayout:1.2.0"
+    implementation platform("com.google.firebase:firebase-bom:34.16.0")
+    implementation "com.google.firebase:firebase-messaging"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

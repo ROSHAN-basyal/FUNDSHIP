@@ -132,7 +132,7 @@ to consume the package normally through Vite.
 
 Profile images are still stored as text fields for compatibility. Moving them into private Supabase Storage remains later production hardening.
 
-The deployed REST API supports shared accounts, connections, payments, polls, and chat between phones. Visible clients refresh hosted chat automatically. True server-originated Android alerts while the app is fully stopped still require Firebase Cloud Messaging credentials; Vercel alone cannot wake an Android app. Until FCM is connected, new poll and inbox alerts are delivered when the app is open or reconnects.
+The deployed REST API supports shared accounts, connections, payments, polls, and chat between phones. Visible clients refresh hosted chat automatically. Server-originated Android delivery for new polls and incoming payment requests uses Firebase Cloud Messaging without a permanently running foreground service. Complete the project-specific Firebase setup in [`docs/android-background-notifications.md`](docs/android-background-notifications.md); until those credentials are configured, the foreground reconciliation path remains available when the app opens or reconnects.
 
 ## Poll reminder behavior
 
